@@ -124,35 +124,42 @@ def metamatrix_conjugate_gradient(
                      lr_list=lr_list, transpose=True)
         
         r = vec_list_op(r, At_A_x, SUB_FUNC)
-        
+    
+    # Define p and measure current candidate vector
     p = [r_elem.clone().detach() for r_elem in r]
     rdotr = vec_list_dot(r, r)
     
+    # Set relative residual threshold
     residual_tol = tol * rdotr
     if rdotr < residual_tol or rdotr < atol:
         return vector_list, 1
     
+    # Use conjugate gradient to find vector solution
     for i in range(n_steps):
         A_p = avp(loss_list, param_list, p, 
                   lr_list=lr_list, transpose=False)
         
         alpha = rdotr / vec_list_dot(p, A_p)
-        alpha_p = vec_list_map(p, lambda x: alpha * x)
-        alpha_Ap = vec_list_map(p, lambda x: alpha * x)
         
+        alpha_mul = lambda x: alpha * x
+        alpha_p = vec_list_map(p, alpha_mul)
+        alpha_Ap = vec_list_map(A_p, alpha_mul)
+        
+        # Update candidate solution and residual
         vector_list = vec_list_op(vector_list, alpha_p, ADD_FUNC)
         r = vec_list_op(r, alpha_Ap, SUB_FUNC)
         
         new_rdotr = vec_list_dot(r, r)
         
+        # Break if solution is within threshold
         if new_rdotr < atol or new_rdotr < residual_tol:
             break
         
+        # Otherwise, update and continue
         beta = new_rdotr / rdotr
         beta_p = vec_list_map(p, lambda x: beta * x)
         
-            p = vec_list_op(r, beta_p, ADD_FUNC)
-        
+        p = vec_list_op(r, beta_p, ADD_FUNC)
         rdotr = new_rdotr
         
     return vector_list, i
