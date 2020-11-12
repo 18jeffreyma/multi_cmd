@@ -89,7 +89,7 @@ def metamatrix_conjugate_gradient(
     vector_list=None,
     lr_list=None,
     n_steps=10,
-    tol=1e-12,
+    tol=1e-8,
     atol=1e-12,
     retain_graph=True
 ):
