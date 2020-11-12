@@ -15,16 +15,12 @@ def vec_list_op(v1, v2, f):
 def vec_list_map(v, f):
     return list(map(f, v))
 
-def grad_tuple_to_vec(grad_tuple, param_list):
-    grad_list = []
-
-    for i, p in enumerate(param_list)
-        if grad_tuple[i] is None
-            grad_list.append(torch.zeros_like(p).view(-1))
-        else:
-            grad_list.append(grad_tuple[i].contiguous().view(-1))
-            
-    return torch.cat(grad_list)
+def grad_tuple_to_vec(grad_tuple, param):
+    assert(len(grad_tuple) == 1)
+    if grad_tuple[0] is None:
+        return torch.zeros_like(param, requires_grad=True).view(-1)
+    else:
+        return torch.cat([g.contiguous().view(-1) for g in grad_tuple])
 
 def avp(
     loss_list,
@@ -50,7 +46,7 @@ def avp(
     assert(len(loss_list) == len(vector_list))
     assert((lr_list is not None) and (len(loss_list) == len(lr_list)))
     
-    prod_list = [torch.zeros(param.shape[0]) for param in param_list]
+    prod_list = [torch.zeros_like(param) for param in param_list]
     lr_list = lr_list if lr_list else [1] * len(param_list)
     
     for i, row_param in enumerate(param_list):
@@ -65,7 +61,7 @@ def avp(
                                        create_graph=retain_graph,
                                        retain_graph=retain_graph,
                                        allow_unused=True)
-            grad_param_vec = grad_tuple_to_vec(grad_param, [col_param])
+            grad_param_vec = grad_tuple_to_vec(grad_param, col_param)
             
             if torch.isnan(grad_param_vec).any():
                 raise ValueError('grad_param_vec nan')
@@ -74,13 +70,13 @@ def avp(
             hvp = autograd.grad(grad_vec_prod, row_param, 
                                 retain_graph=retain_graph, 
                                 allow_unused=True)
-            hvp_vec = grad_tuple_to_vec(hvp, [row_param])
+            hvp_vec = grad_tuple_to_vec(hvp, row_param)
             
             if torch.isnan(hvp_vec).any():
                 raise ValueError('hvp_vec nan')
             
             if detach:
-                hvp_vec = hvp_vec.detach_()
+                hvp_vec = hvp_vec.detach()
             
             lr = lr_list[i] if not transpose else lr_list[j]
             prod_list[i] += hvp_vec * lr
@@ -118,10 +114,11 @@ def metamatrix_conjugate_gradient(
     
     b = []
     for lr, loss, param in zip(lr_list, loss_list, param_list):
+        
         grad_param = autograd.grad(loss, param,
                                    retain_graph=retain_graph,
                                    allow_unused=True)
-        grad_vec = grad_tuple_to_vec(grad_param, [param])
+        grad_vec = grad_tuple_to_vec(grad_param, param)
         b.append(-lr * grad_vec)
     
     # Multiplying both sides by transpose to ensure p.s.d.
@@ -129,7 +126,7 @@ def metamatrix_conjugate_gradient(
     r = avp(loss_list, param_list, b, lr_list=lr_list, transpose=True)
     
     if vector_list is None:
-        vector_list = [torch.zeros_like(param) for param in param_list]
+        vector_list = [torch.zeros(param.shape[0]) for param in param_list]
        
     else:
         A_x = avp(loss_list, param_list, vector_list, 
