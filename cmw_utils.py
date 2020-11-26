@@ -4,7 +4,6 @@ from utils import *
 
 def avp(
     loss_list,
-    bregman_list,
     param_list,
     vector_list,
     transpose=False,
@@ -13,10 +12,8 @@ def avp(
 ):
     """
     :param vector_list: list of vectors for each player
-    :param bregman_list: list of bregman potentials for each player
     :param loss_list: list of objective functions for each player
     :param param_list: list of parameter vectors for each player
-    :param lr: list of learning rates for each player
     :param transpose: compute product against transpose if set
     :param retain_graph: save
     
@@ -25,20 +22,24 @@ def avp(
     # TODO(jjma): add error handling and assertions
     assert(len(loss_list) == len(param_list))
     assert(len(loss_list) == len(vector_list))
-    assert((lr_list is not None) and (len(loss_list) == len(lr_list)))
     
     prod_list = [torch.zeros_like(param) for param in param_list]
     
     for i, row_param in enumerate(param_list):
         for j, (col_param, vector_elem) in enumerate(zip(param_list, vector_list)):
-          
-            objective = loss_list[i] if not transpose else loss_list[j]
             
             # Diagonal case, where row and col params are the same.
+            # TODO(jjma): Verify with Florian that second derivative is correct.
             if i == j:
-                objective = bregman_list[i]
+                # bregman_diagonal = 1 / row_param
                 
-            grad_param = autograd.grad(objective, col_param, 
+                # gradient is computed in dual coordinates
+                bregman_diagonal = row_param
+                prod_list[i] += torch.mul(bregman_diagonal, vector_elem)
+                continue
+                
+            loss = loss_list[i] if not transpose else loss_list[j]
+            grad_param = autograd.grad(loss, col_param, 
                                        create_graph=retain_graph,
                                        retain_graph=retain_graph,
                                        allow_unused=True)
@@ -52,7 +53,7 @@ def avp(
                                 retain_graph=retain_graph, 
                                 allow_unused=True)
             hvp_vec = grad_tuple_to_vec(hvp, row_param)
-            
+
             if torch.isnan(hvp_vec).any():
                 raise ValueError('hvp_vec nan')
             
@@ -64,10 +65,8 @@ def avp(
     return prod_list
 
 
-# TODO(jjma): Verify that LR is not needed.
 def metamatrix_conjugate_gradient(
     loss_list,
-    bregman_list,
     param_list,
     vector_list=None,
     n_steps=10,
@@ -79,7 +78,6 @@ def metamatrix_conjugate_gradient(
     :param loss_list: list of loss tensors for each player
     :param param_list: list of player params to compute gradients from
     :param vector_list: initial guess for update solution
-    :param lr_list: list of learning rates per player
     :param n_steps: number of iteration steps for conjugate gradient
     :param tol: relative residual tolerance threshold from initial vector guess
     :param tol: absolute residual tolerance threshold
@@ -92,27 +90,26 @@ def metamatrix_conjugate_gradient(
     vector of update vectors and b is learning rate times vector of gradients 
     is the same as solving A'x = b' (where A' = (A^T)A and b' = (A^T)b.
     """
-    lr_list = lr_list if lr_list else [0.001] * len(param_list)
     
     b = []
-    for lr, loss, param in zip(lr_list, loss_list, param_list):
+    for loss, param in zip(loss_list, param_list):
         
         grad_param = autograd.grad(loss, param,
                                    retain_graph=retain_graph,
                                    allow_unused=True)
-        grad_vec = cgd_utils.grad_tuple_to_vec(grad_param, param)
+        grad_vec = grad_tuple_to_vec(grad_param, param)
         b.append(-grad_vec)
     
     # Multiplying both sides by transpose to ensure p.s.d.
     # r = A^t * b (before we subtract)
-    r = avp(loss_list, bregman_list, param_list, b, transpose=True)
+    r = avp(loss_list, param_list, b, transpose=True)
     
     if vector_list is None:
         vector_list = [torch.zeros(param.shape[0]) for param in param_list]
        
     else:
-        A_x = avp(loss_list, bregman_list, param_list, vector_list, transpose=False)
-        At_A_x = avp(loss_list, bregman_list, param_list, A_x, transpose=True)
+        A_x = avp(loss_list, param_list, vector_list, transpose=False)
+        At_A_x = avp(loss_list, param_list, A_x, transpose=True)
         
         r = vec_list_op(r, At_A_x, SUB_FUNC)
     
@@ -128,9 +125,9 @@ def metamatrix_conjugate_gradient(
     # Use conjugate gradient to find vector solution
     for i in range(n_steps):
         A_p = avp(loss_list, param_list, p, 
-                  lr_list=lr_list, transpose=False)
+                  transpose=False)
         At_A_p = avp(loss_list, param_list, A_p, 
-                     lr_list=lr_list, transpose=True)
+                     transpose=True)
         
         alpha = rdotr / vec_list_dot(p, At_A_p)
         
@@ -158,6 +155,16 @@ def metamatrix_conjugate_gradient(
         
     return vector_list, i
 
-def project_update(nash_list):
-    # TODO(jjma): Inverting a gradient???
+def project_update(nash_list, param_list, detach=True):
+    """Project update from dual back to primal."""
+    updated_params = []
+    for nash, param in zip(nash_list, param_list):
+        updated_params.append(param * torch.exp(nash))
+        
+    if detach:
+        updated_params = [param.detach().requires_grad_() for param in updated_params]
+    
+    return updated_params
+    
+    
     
