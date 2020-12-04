@@ -26,16 +26,14 @@ def avp(
     prod_list = [torch.zeros_like(param) for param in param_list]
     
     for i, row_param in enumerate(param_list):
-        for j, (col_param, vector_elem) in enumerate(zip(param_list, vector_list)):
-            
+        for j, (col_param, vector_elem) in enumerate(zip(param_list, vector_list)):     
             # Diagonal case, where row and col params are the same.
-            # TODO(jjma): Verify with Florian that second derivative is correct.
-            if i == j:
-                # bregman_diagonal = 1 / row_param
+            if i == j:               
+                # TODO(jjma): why is this converging with multiplication and not division
+                # can't initialize values at zero right
                 
-                # gradient is computed in dual coordinates
-                bregman_diagonal = row_param
-                prod_list[i] += torch.mul(bregman_diagonal, vector_elem)
+                # prod_list[i] += vector_elem * row_param
+                prod_list[i] += vector_elem / row_param
                 continue
                 
             loss = loss_list[i] if not transpose else loss_list[j]
@@ -159,8 +157,9 @@ def project_update(nash_list, param_list, detach=True):
     """Project update from dual back to primal."""
     updated_params = []
     for nash, param in zip(nash_list, param_list):
-        updated_params.append(param * torch.exp(nash))
-        
+        # Scale nash with hessian
+        updated_params.append(param * torch.exp(nash / param))
+       
     if detach:
         updated_params = [param.detach().requires_grad_() for param in updated_params]
     
