@@ -25,6 +25,7 @@ def avp(
     
     prod_list = [torch.zeros_like(param) for param in param_list]
     
+    
     for i, row_param in enumerate(param_list):
         for j, (col_param, vector_elem) in enumerate(zip(param_list, vector_list)):     
             # Diagonal case, where row and col params are the same.
@@ -33,10 +34,12 @@ def avp(
                 # can't initialize values at zero right
                 
                 # prod_list[i] += vector_elem * row_param
-                prod_list[i] += vector_elem / row_param.detach()
+                prod_list[i] += vector_elem * row_param.detach()
                 continue
-                
-            loss = loss_list[i] if not transpose else loss_list[j]
+            
+            row_idx, col_idx = (i, j) if not transpose else (j, i)
+            loss = loss_list[row_idx]
+            
             grad_param = autograd.grad(loss, col_param, 
                                        create_graph=retain_graph,
                                        retain_graph=retain_graph,
@@ -46,7 +49,9 @@ def avp(
             if torch.isnan(grad_param_vec).any():
                 raise ValueError('grad_param_vec nan')
             
-            grad_vec_prod = torch.dot(grad_param_vec, vector_elem)
+            scaled_vector_elem = vector_elem * param_list[col_idx].detach()
+            
+            grad_vec_prod = torch.dot(grad_param_vec, scaled_vector_elem)
             hvp = autograd.grad(grad_vec_prod, row_param, 
                                 retain_graph=retain_graph, 
                                 allow_unused=True)
@@ -58,7 +63,7 @@ def avp(
             if detach:
                 hvp_vec = hvp_vec.detach()
             
-            prod_list[i] += hvp_vec
+            prod_list[i] += hvp_vec * param_list[row_idx]
     
     return prod_list
 
@@ -96,7 +101,7 @@ def metamatrix_conjugate_gradient(
                                    retain_graph=retain_graph,
                                    allow_unused=True)
         grad_vec = grad_tuple_to_vec(grad_param, param)
-        b.append(-grad_vec)
+        b.append(-grad_vec * param)
     
     # Multiplying both sides by transpose to ensure p.s.d.
     # r = A^t * b (before we subtract)
@@ -153,7 +158,7 @@ def metamatrix_conjugate_gradient(
         
     return vector_list, i
 
-def project_update(nash_list, param_list, detach=False):
+def project_update(nash_list, param_list, detach=True):
     """Project update from dual back to primal."""
     updated_params = []
     for nash, param in zip(nash_list, param_list):
