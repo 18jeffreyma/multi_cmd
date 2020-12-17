@@ -4,6 +4,35 @@ from utils import *
 
 import potentials
 
+
+def Hvp_vec(grad_vec, params, vec, retain_graph=True):
+    '''
+    :param grad_vec: tensor of which the Hessian vector product will be computed
+    :param params: list of params, w.r.t which the Hessian will be computed
+    :param vec: the "vector" in Hessian vector product
+    :param retain_graph: save if set to True
+    
+    Computes Hessian vector product.
+    '''
+    if torch.isnan(grad_vec).any():
+        raise ValueError('Gradvec nan')
+    if torch.isnan(vec).any():
+        raise ValueError('vector nan')
+
+    grad_grad = autograd.grad(grad_vec, params, grad_outputs=vec, retain_graph=retain_graph,
+                              allow_unused=True)
+    grad_list = []
+    for i, p in enumerate(params):
+        if grad_grad[i] is None:
+            grad_list.append(torch.zeros_like(p).view(-1))
+        else:
+            grad_list.append(grad_grad[i].contiguous().view(-1))
+    hvp = torch.cat(grad_list)
+    if torch.isnan(hvp).any():
+        raise ValueError('hvp Nan')
+    return hvp
+
+
 def avp(
     loss_list,
     param_list,
@@ -37,24 +66,15 @@ def avp(
                 continue
 
             loss = loss_list[i] if not transpose else loss_list[j]
-                
+            
             grad_param = autograd.grad(loss, col_param, 
                                        create_graph=retain_graph,
                                        retain_graph=retain_graph,
                                        allow_unused=True)
             grad_param_vec = grad_tuple_to_vec(grad_param, col_param)
             
-            if torch.isnan(grad_param_vec).any():
-                raise ValueError('grad_param_vec nan')
-            
-            grad_vec_prod = torch.dot(grad_param_vec, vector_elem)
-            hvp = autograd.grad(grad_vec_prod, row_param, 
-                                retain_graph=retain_graph, 
-                                allow_unused=True)
-            hvp_vec = grad_tuple_to_vec(hvp, row_param)
-            
-            if torch.isnan(hvp_vec).any():
-                raise ValueError('hvp_vec nan')
+            # Compute relevant mixed Hessian for metamatrix multiplication.
+            hvp_vec = Hvp_vec(grad_param_vec, [row_param], vector_elem)
             
             if detach:
                 hvp_vec = hvp_vec.detach()
@@ -68,10 +88,11 @@ def metamatrix_conjugate_gradient(
     param_list,
     vector_list=None,
     bregman=potentials.squared_distance(1),
-    n_steps=10,
-    tol=1e-8,
-    atol=1e-12,
-    retain_graph=True
+    n_steps=5,
+    tol=1e-6,
+    atol=1e-6,
+    retain_graph=True,
+    detach=True,
 ):
     """
     :param loss_list: list of loss tensors for each player
@@ -104,28 +125,33 @@ def metamatrix_conjugate_gradient(
     # r = A^t * b (before we subtract)
     r = avp(loss_list, param_list, b, bregman=bregman, transpose=True)
     
+    # Set relative residual threshold
+    norm_At_b = vec_list_dot(r, r)
+    residual_tol = tol * norm_At_b
+    
     if vector_list is None:
         vector_list = [torch.zeros(param.shape[0]) for param in param_list]
        
     else:
+        # Compute initial residual if a guess is given.
         A_x = avp(loss_list, param_list, vector_list, 
-                  bregman=bregnman, transpose=False)
+                  bregman=bregman, transpose=False)
         At_A_x = avp(loss_list, param_list, A_x, 
                      bregman=bregman, transpose=True)
         
         r = vec_list_op(r, At_A_x, SUB_FUNC)
     
+    # Early exit if solution already found.
+    rdotr = vec_list_dot(r, r)
+    if rdotr < residual_tol or rdotr < atol:
+        return vector_list, 0
+
     # Define p and measure current candidate vector
     p = [r_elem.clone().detach() for r_elem in r]
-    rdotr = vec_list_dot(r, r)
-    
-    # Set relative residual threshold
-    residual_tol = tol * rdotr
-    if rdotr < residual_tol or rdotr < atol:
-        return vector_list, 1
     
     # Use conjugate gradient to find vector solution
     for i in range(n_steps):
+        
         A_p = avp(loss_list, param_list, p, 
                   bregman=bregman, transpose=False)
         At_A_p = avp(loss_list, param_list, A_p, 
@@ -154,11 +180,17 @@ def metamatrix_conjugate_gradient(
         
         p = vec_list_op(r, beta_p, ADD_FUNC)
         rdotr = new_rdotr
-        
+    
+#     # Detach, since we no longer need derivatives.
+#     if detach:
+#         vector_list = [param.detach().requires_grad_() for param in vector_list]
+    
     return vector_list, i
 
 
-def exp_map(param_list, nash_list, bregman=potentials.squared_distance(1)):
+def exp_map(param_list, nash_list, 
+            bregman=potentials.squared_distance(1),
+            detach=True):
     """
     :param param_list: list of player params before update
     :param nash_list: nash equilibrium solutions computed from minimization step
@@ -169,28 +201,52 @@ def exp_map(param_list, nash_list, bregman=potentials.squared_distance(1)):
     def combine(param, nash):
         return bregman['Dx'](bregman['Dx_inv'](param) + bregman['Dxx_vp'](param, nash))
     
-    return vec_list_op(param_list, nash_list, combine)
-
-
-def step(
-    param_list,
-    payoff_func,
-    bregman=potentials.squared_distance(1),
-):
-    """
-    :param param_list: list of player params to compute next step from
-    :param payoff_func: function that takes in a vector list (list of Tensors) 
-        of parameters and computes a vector list of payoffs.
-    :param bregman: dict representing a Bregman potential to be used
+    mapped = vec_list_op(param_list, nash_list, combine)
     
-    Given some state of the game, compute next step using Bregman potential
-    and payoff function. Returns the new param list.
-    """
-    payoff_list = payoff_func(param_list)
+    # Detach, since we no longer need derivatives.
+    if detach:
+        mapped = [param.detach().requires_grad_() for param in mapped]
+        
+    return mapped
 
-    nash_list, _ = metamatrix_conjugate_gradient(payoff_list, 
-                                                 param_list,
-                                                 bregman=bregman)
-    return exp_map(param_list, nash_list, bregman=bregman)
-       
+
+class CMD(object):
+    """Optimizer class for the CMD algorithm."""
+    def __init__(self, player_list,
+                 bregman=potentials.squared_distance(1),
+                 tol=1e-6, atol=1e-6,
+                 device=torch.device('cpu')
+                ):
+        self.bregman = bregman
+        self.state = {'step': 0, 'player_list': player_list,
+                      'tol': tol, 'atol': atol,
+                      'last_dual_soln': None,
+                      'last_dual_soln_n_iter': 0}
+        # TODO(jjma): set this device in CMD algorithm.
+        self.device = device
+        
+    def zero_grad(self):
+        zero_grad(self.player_list)
+        
+    def state_dict(self):
+        return self.state
     
+    def player_list(self):
+        return self.state['player_list']
+        
+    def step(self, loss_func):
+        nash_list, n_iter = metamatrix_conjugate_gradient(
+            loss_func(self.state['player_list']), 
+            self.state['player_list'],
+            vector_list=self.state['last_dual_soln'],
+            bregman=self.bregman,
+            tol=self.state['tol'],
+            atol=self.state['atol']
+        )
+        
+        self.state['step'] += 1
+        self.state['last_dual_soln'] = nash_list
+        self.state['last_dual_soln_n_iter'] = n_iter        
+        self.state['player_list'] = exp_map(self.state['player_list'], 
+                                            nash_list, 
+                                            bregman=self.bregman)
