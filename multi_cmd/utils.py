@@ -1,6 +1,7 @@
 import torch
 import torch.autograd as autograd
 
+
 ADD_FUNC = lambda x, y: x + y
 SUB_FUNC = lambda x, y: x - y
 ADD_FUNC_INPLACE = lambda x, y: x.data.add_(y)
@@ -23,20 +24,20 @@ def grad_tuple_to_vec(grad_tuple, param):
         return torch.zeros_like(param, requires_grad=True).view(-1)
     else:
         return torch.cat([g.contiguous().view(-1) for g in grad_tuple])
-    
+
 def zero_grad(params):
     for param in params:
         if param.grad is not None:
             p.grad.detach()
             p.grad.zero_()
-                
+
 def Hvp_vec(grad_vec, params, vec, retain_graph=True):
     '''
     :param grad_vec: tensor of which the Hessian vector product will be computed
     :param params: list of params, w.r.t which the Hessian will be computed
     :param vec: the "vector" in Hessian vector product
     :param retain_graph: save if set to True
-    
+
     Computes Hessian vector product.
     '''
     if torch.isnan(grad_vec).any():
