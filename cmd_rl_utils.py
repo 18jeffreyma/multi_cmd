@@ -186,8 +186,8 @@ def exp_map(param_list, nash_list,
 
 
 # TODO(jjma): make this user interface cleaner.
-class CMD(object):
-    """Optimizer class for the CMD algorithm."""
+class CMD_RL(object):
+    """Optimizer class for the CMD algorithm for reinforcement learning."""
     def __init__(self, player_list,
                  bregman=potentials.squared_distance(1),
                  tol=1e-6, atol=1e-6,
@@ -229,6 +229,7 @@ class CMD(object):
         mapped_list = exp_map(self.state['player_list'], 
                               nash_list, 
                               bregman=self.bregman)
+
         for player, mapped in zip(self.state['player_list'], mapped_list):
             player.data = mapped
 
