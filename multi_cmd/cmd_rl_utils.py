@@ -1,8 +1,8 @@
 import torch
 import torch.autograd as autograd
 
-from . import utils
-from . import potentials
+from multi_cmd import utils
+from multi_cmd import potentials
 
 def avp(
     grad_loss_list,
@@ -103,6 +103,7 @@ def metamatrix_conjugate_gradient(
         grad_param = autograd.grad(loss, param,
                                    retain_graph=retain_graph,
                                    allow_unused=True)
+
         grad_vec = utils.grad_tuple_to_vec(grad_param, param)
         b.append(-grad_vec)
 
@@ -199,7 +200,8 @@ def exp_map(param_list, nash_list,
         return mapped
 
 
-# TODO(jjma): make this user interface cleaner.
+# TODO(jjma): model parameters are provided as a generator, need to convert to
+# a tensor and maintaing code
 class CMD_RL(object):
     """Optimizer class for the CMD algorithm for reinforcement learning."""
     def __init__(self, player_list,
@@ -208,6 +210,11 @@ class CMD_RL(object):
                  device=torch.device('cpu')
                 ):
         self.bregman = bregman
+
+        # Convert player param generators to actual lists of params.
+        # This contains a list (per player) of lists of tensors/parameters.
+        player_list = [list(player) for player in player_list]
+
         self.state = {'step': 0,
                       'player_list': player_list,
                       'tol': tol, 'atol': atol,
@@ -217,7 +224,7 @@ class CMD_RL(object):
         self.device = device
 
     def zero_grad(self):
-        for player in player_list:
+        for player in self.state['player_list']:
             utils.zero_grad(player)
 
     def state_dict(self):
@@ -227,6 +234,11 @@ class CMD_RL(object):
         return self.state['player_list']
 
     def step(self, loss_list, tot_loss_list):
+        player_list_unrolled = [
+            torch.cat([g.contiguous().view(-1) for tensor in player])
+            for player in self.state['player_list']
+        ]
+
         nash_list, n_iter = metamatrix_conjugate_gradient(
             loss_list,
             tot_loss_list,
