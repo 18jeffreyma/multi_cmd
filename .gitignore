@@ -6,6 +6,9 @@
 # MacOS stuff.
 **/.DS_Store
 
+# Tensorboard logs.
+**/tensorboard/
+
 # C extensions
 *.so
 

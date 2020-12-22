@@ -162,3 +162,6 @@ for t_eps in range(num_episode):
         torch.save(p2.state_dict(),
                    '../' + folder_location + experiment_name + 'model/agent2_' + str(
                        t_eps) + ".pth")
+print('final')
+print('p1 policy', p1())
+print('p2 policy', p2())

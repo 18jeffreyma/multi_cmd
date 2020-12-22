@@ -43,7 +43,7 @@ env = pennies_game()
 # optim = CoPG(p1.parameters(), p2.parameters(), lr=0.5)
 optim = cmd_rl_utils.CMD_RL([p1.parameters(), p2.parameters()], bregman=potentials.squared_distance(0.5))
 
-num_episode = 150
+num_episode = 200
 batch_size = 1000
 
 for t_eps in range(num_episode):
@@ -160,3 +160,7 @@ for t_eps in range(num_episode):
         torch.save(p2.state_dict(),
                    '../' + folder_location + experiment_name + 'model/agent2_' + str(
                        t_eps) + ".pth")
+
+print('final')
+print('p1 policy', p1())
+print('p2 policy', p2())

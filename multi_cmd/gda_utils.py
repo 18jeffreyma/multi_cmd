@@ -9,3 +9,5 @@ def compute_update(loss, param, lr=1, retain_graph=True):
                                allow_unused=True)
     grad_vec = utils.grad_tuple_to_vec(grad_param, param)
     return -lr * grad_vec
+
+# TODO(jjma): Write a formal optimizer for CGD.
