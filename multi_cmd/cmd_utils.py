@@ -231,7 +231,7 @@ class CMD(object):
         self.device = device
 
     def zero_grad(self):
-        for player in player_list:
+        for player in self.state['player_list']:
             utils.zero_grad(player)
 
     def state_dict(self):
