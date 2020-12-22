@@ -6,6 +6,9 @@ https://arxiv.org/abs/1905.12103
 Original CMD Paper:
 https://arxiv.org/abs/2006.10179
 
+Original CoPG Paper:
+https://arxiv.org/abs/2006.10611
+
 ## Setup Instructions
 1. Clone this repository: `git clone ...`
 2. Navigate to cloned repository and run `pip install -e .`
