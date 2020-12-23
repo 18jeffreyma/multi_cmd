@@ -16,7 +16,7 @@ from network import policy1, policy2
 
 # Import multiplayer CMD RL optimizer.
 # from copg_optim import CoPG
-from multi_cmd import cmd_rl_utils
+from multi_cmd import cmd_utils
 from multi_cmd import potentials
 
 # Set up directory for results.
@@ -41,7 +41,7 @@ env = pennies_game()
 
 # Initialize optimizer (changed this to new optimizer)
 # optim = CoPG(p1.parameters(), p2.parameters(), lr=0.5)
-optim = cmd_rl_utils.CMD_RL([p1.parameters(), p2.parameters()], bregman=potentials.squared_distance(0.5))
+optim = cmd_utils.CMD_RL([p1.parameters(), p2.parameters()], bregman=potentials.squared_distance(0.5))
 
 num_episode = 200
 batch_size = 1000

@@ -1,8 +1,11 @@
+"""Provided Bregman potentials."""
 import torch
 
 
 def squared_distance(alpha):
-    # This recovers our original CGD algorithm.
+    """
+    This potential recovers the CGD algorithm, with no value constraints
+    """
     def Dx(x_dual):
         return x_dual / alpha
 
@@ -17,6 +20,10 @@ def squared_distance(alpha):
 
 
 def shannon_entropy(alpha):
+    """
+    This potential recovers the CMW algorithm, constraining weights
+    to positive values only.
+    """
     def Dx(x_dual):
         return torch.exp(x_dual / alpha)
 
