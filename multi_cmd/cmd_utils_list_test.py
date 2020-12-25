@@ -1,7 +1,7 @@
 import torch
 import unittest
 
-from multi_cmd import cmd_utils
+from multi_cmd import cmd_utils_list as cmd_utils
 from multi_cmd import potentials
 
 class TestCGDUtils(unittest.TestCase):
@@ -27,14 +27,15 @@ class TestCGDUtils(unittest.TestCase):
         b1 = torch.tensor([1.0, 1.0])
         b2 = torch.tensor([1.0, 1.0])
 
-        result1 = cmd_utils.avp([x_loss, y_loss], [[self.x], [self.y]], [self.x, self.y], [b1, b2],
-                                    bregman=self.bregman,
-                                    transpose=False)
-        result2 = cmd_utils.avp([x_loss, y_loss], [[self.x], [self.y]], [self.x, self.y], [b1, b2],
-                                    bregman=self.bregman,
-                                    transpose=True)
+        raw_result1 = cmd_utils.avp([x_loss, y_loss], [[self.x], [self.y]], [[b1], [b2]], bregman=self.bregman,
+                            transpose=False)
+        raw_result2 = cmd_utils.avp([x_loss, y_loss], [[self.x], [self.y]], [[b1], [b2] ], bregman=self.bregman,
+                            transpose=True)
 
-        expected1 = [torch.tensor([9., 9.]), torch.tensor([-7., -7.])]
+        result1 = [elem[0] for elem in raw_result1]
+        result2 = [elem[0] for elem in raw_result2]
+
+        expected1 = expected1 = [torch.tensor([9., 9.]), torch.tensor([-7., -7.])]
         expected2 = [torch.tensor([-7., -7.]), torch.tensor([9., 9.])]
 
         for a, b in zip(result1, expected1):
@@ -42,7 +43,6 @@ class TestCGDUtils(unittest.TestCase):
 
         for a, b in zip(result2, expected2):
             self.assertTrue(torch.all(torch.eq(a, b)))
-
 
     def testTwoPlayerConjugateGradientSqDist(self):
         """
@@ -56,26 +56,24 @@ class TestCGDUtils(unittest.TestCase):
         x_loss = torch.sum(torch.pow(self.x, 2)) * torch.sum(torch.pow(self.y, 2))
         y_loss = - torch.sum(torch.pow(self.x, 2)) * torch.sum(torch.pow(self.y, 2))
 
-        result, n_iter = cmd_utils.metamatrix_conjugate_gradient(
-            [x_loss, y_loss],
-            [x_loss, y_loss],
-            [[self.x], [self.y]],
-            [self.x, self.y],
-            bregman=self.bregman)
-
+        raw_result, n_iter = cmd_utils.metamatrix_conjugate_gradient(
+            [x_loss, y_loss], [x_loss, y_loss], [[self.x], [self.y]], bregman=self.bregman)
+        result = [elem[0] for elem in raw_result]
         expected = [torch.tensor([-0.5538, -0.5538]), torch.tensor([-0.4308, -0.4308])]
+
 
         for a, b in zip(result, expected):
             self.assertTrue(torch.all(torch.isclose(a, b, atol=1e-03,)))
-
 
     def testTwoPlayerExpMapSqDist(self):
         """
         For the squared distance Bregman potential, we test that our implementation is correct.
         """
-        nash_list = [torch.tensor([-1., -1.]), torch.tensor([-1., -1.])]
+        nash_list = [[torch.tensor([-1., -1.])], [torch.tensor([-1., -1.])]]
 
-        result = cmd_utils.exp_map([self.x, self.y], nash_list)
+        raw_result = cmd_utils.exp_map([[self.x], [self.y]], nash_list)
+        result = [elem[0] for elem in raw_result]
+
         expected = [torch.tensor([0., 0.]), torch.tensor([0, 0])]
 
         for a, b in zip(result, expected):
@@ -104,8 +102,7 @@ class TestCGDUtils(unittest.TestCase):
 
     def testTwoPlayerOptimShannonEntropyE2E(self):
         """
-        Perform an E2E test that CMD algorithm is generally implemented correctly
-        on a bilinear, two player objective.
+        Perform an E2E test that CMD algorithm is generally implemented correctly.
         """
         # TODO(jjma): Clean up this test case.
         x_param = torch.tensor([0.3], requires_grad=True)
@@ -144,10 +141,10 @@ class TestCGDUtils(unittest.TestCase):
 
         # Check that values are correct.
         for actual, expected in zip(x_player, expected_x):
-            self.assertAlmostEqual(actual, expected, places=3)
+            self.assertTrue(round(actual, 4) == expected)
 
         for actual, expected in zip(y_player, expected_y):
-            self.assertAlmostEqual(actual, expected, places=3)
+            self.assertTrue(round(actual, 4) == expected)
 
     # TODO(jjma): add tests for 3 player case
 

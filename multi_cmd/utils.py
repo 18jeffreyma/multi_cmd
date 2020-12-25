@@ -56,11 +56,3 @@ def filter_none_grad(
             grad_elems.append(elem if not neg else -elem)
 
     return tuple(grad_elems)
-
-
-def zero_grad(params):
-    """Given some list of Tensors, zero and reset gradients."""
-    for p in params:
-        if p.grad is not None:
-            p.grad.detach()
-            p.grad.zero_()

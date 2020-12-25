@@ -4,7 +4,6 @@ import torch.autograd as autograd
 from multi_cmd import utils
 from multi_cmd import potentials
 
-
 def zero_grad(params):
     """Given some list of Tensors, zero and reset gradients."""
     for p in params:
@@ -12,60 +11,42 @@ def zero_grad(params):
             p.grad.detach()
             p.grad.zero_()
 
-
-def flatten_filter_none(grad_list, param_list, detach=False, neg=False):
-    """
-    Given a list of Tensors with possible None values, returns single Tensor
-    with None removed and flattened.
-    """
-    filtered = []
-    for grad, param in zip(grad_list, param_list):
-        if grad is None:
-            filtered.append(torch.zeros(param.numel(), requires_grad=True))
-        else:
-            filtered.append(grad.contiguous().view(-1))
-
-    result = torch.cat(filtered) if not neg else -torch.cat(filtered)
-
-    # Use this only if higher order derivatives are not needed.
-    if detach:
-        result.detach_()
-    return result
-
-
 def avp(
     hessian_loss_list,
     player_list,
-    player_list_flattened,
-    vector_list_flattened,
+    vector_list,
     bregman=potentials.squared_distance(1),
     transpose=False,
     detach=True,
 ):
     """
     :param hessian_loss_list: list of objective functions for hessian computation
-    :param player_list: list of list of params for each player to compute gradients from
-    :param player_list_flattened: list of flattened player tensors (without gradients)
-    :param vector_list_flattened: list of flattened vectors for each player
+    :param vector_list: list of list of vectors for each player
+    :param player_list: list of lists of player tensors to compute gradients from
     :param bregman: dictionary representing bregman potential to use
     :param transpose: compute product against transpose if set
+    :param retain_graph: save
 
     Computes right product of metamatrix with a vector of player vectors.
     """
     # TODO(jjma): add error handling and assertions
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
-    prod_list = [torch.zeros_like(v) for v in vector_list_flattened]
+
+    prod_list = utils.player_list_map(player_list, lambda p: torch.zeros_like(p))
 
     for i, row_params in enumerate(player_list):
-        for j, (col_params, vector_elem) in enumerate(zip(player_list, vector_list_flattened)):
+        for j, (col_params, vector_elem) in enumerate(zip(player_list, vector_list)):
             if i == j:
                 # Diagonal element is the Bregman term.
 
                 # TODO(jjma): Check if all Bregman potentials can be evaluated
                 # element-wise; if so, we can evaluate this tensor by tensor as
                 # below.
-                prod_list[i] += bregman['Dxx_vp'](player_list_flattened[i], vector_elem)
+                bregman_tuple = tuple(bregman['Dxx_vp'](row_param, v_elem)
+                                      for row_param, v_elem in zip(row_params, vector_elem))
+                torch._foreach_add_(prod_list[i], bregman_tuple)
+
                 continue
 
             # Otherwise, we construct our Hessian vector products. Variable
@@ -77,17 +58,17 @@ def avp(
                                      create_graph=True,
                                      retain_graph=True,
                                      allow_unused=True)
-            grad_flattened = flatten_filter_none(grad_raw, col_params)
+            grad_tuple = utils.filter_none_grad(grad_raw, col_params)
 
             # Don't need any higher order derivatives, so create_graph = False.
-            hvp_raw = autograd.grad(grad_flattened, row_params,
+            hvp_raw = autograd.grad(grad_tuple, row_params,
                                     grad_outputs=vector_elem,
                                     create_graph=False,
                                     retain_graph=True,
                                     allow_unused=True)
-            hvp_flattened = flatten_filter_none(hvp_raw, row_params)
+            hvp_tuple = utils.filter_none_grad(hvp_raw, row_params)
 
-            prod_list[i] += hvp_flattened
+            torch._foreach_add_(prod_list[i], hvp_tuple)
 
     return prod_list
 
@@ -95,8 +76,7 @@ def metamatrix_conjugate_gradient(
     grad_loss_list,
     hessian_loss_list,
     player_list,
-    player_list_flattened,
-    vector_list_flattened=None,
+    vector_list=None,
     bregman=potentials.squared_distance(1),
     n_steps=5,
     tol=1e-6,
@@ -105,9 +85,8 @@ def metamatrix_conjugate_gradient(
     """
     :param grad_loss_list: list of loss tensors for each player to compute gradient
     :param hessian_loss_list: list of loss tensors for each player to compute hessian
-    :param player_list: list of list of params for each player to compute gradients from
-    :param player_list_flattened: list of flattened player tensors (without gradients)
-    :param vector_list_flattened: initial guess for update solution
+    :param player_list: list of lists of player tensors to compute gradients from
+    :param vector_list: initial guess for update solution
     :param bregman: dict representing a Bregman potential to be used
     :param n_steps: number of iteration steps for conjugate gradient
     :param tol: relative residual tolerance threshold from initial vector guess
@@ -125,60 +104,66 @@ def metamatrix_conjugate_gradient(
     b = []
     for loss, param_tensors in zip(grad_loss_list, player_list):
         # Get vector list of negative gradients.
-        grad_raw = autograd.grad(loss, param_tensors,
-                                 retain_graph=True,
-                                 allow_unused=True)
-        grad_flattened = flatten_filter_none(grad_raw, param_tensors,
-                                             neg=True, detach=True)
-        b.append(grad_flattened)
+        grad_param_tuple = autograd.grad(loss, param_tensors,
+                                         retain_graph=True,
+                                         allow_unused=True)
+        grad_vec_list = utils.filter_none_grad(grad_param_tuple,
+                                               param_tensors,
+                                               neg=True,
+                                               detach=True)
+        b.append(grad_vec_list)
+    b = tuple(b)
 
     # Multiplying both sides by transpose to ensure p.s.d.
     # r = A^t * b (before we subtract)
-    r = avp(hessian_loss_list, player_list, player_list_flattened, b,
-            bregman=bregman, transpose=True)
+    r = avp(hessian_loss_list, player_list, b, bregman=bregman, transpose=True)
 
     # Set relative residual threshold based on norm of b.
-    norm_At_b = sum(torch.dot(r_elem, r_elem) for r_elem in r)
+    norm_At_b = utils.player_list_dot(r, r)
     residual_tol = tol * norm_At_b
 
     # If no guess provided, start from zero vector.
-    if vector_list_flattened is None:
-        vector_list_flattened = [torch.zeros_like(p) for p in player_list_flattened]
+    if vector_list is None:
+        vector_list = utils.player_list_map(player_list,
+                                            lambda p: torch.zeros_like(p))
     else:
         # Compute initial residual if a guess is given.
-        A_x = avp(hessian_loss_list, player_list, player_list_flattened, vector_list_flattened,
+        A_x = avp(hessian_loss_list, player_list, vector_list,
                   bregman=bregman, transpose=False)
-        At_A_x = avp(hessian_loss_list, player_list, player_list_flattened, A_x,
+        At_A_x = avp(hessian_loss_list, player_list, A_x,
                      bregman=bregman, transpose=True)
-        torch._foreach_sub_(r, At_A_x)
 
+        utils.player_list_op(r, At_A_x, utils.INPLACE_SUB_FUNC)
 
     # Early exit if solution already found.
-    rdotr = sum(torch.dot(r_elem, r_elem) for r_elem in r)
+    rdotr = utils.player_list_dot(r, r)
     if rdotr < residual_tol or rdotr < atol:
-        return vector_list_flattened, 0
+        return vector_list, 0
 
-    # Define p and measure current candidate vector.
-    p = [r_elem.clone().detach() for r_elem in r]
+    # Define p and measure current candidate vector
+    p = utils.player_list_map(r, lambda elem: elem.clone().detach())
 
-    # Use conjugate gradient to find vector solution.
+    # Use conjugate gradient to find vector solution
     for i in range(n_steps):
-        A_p = avp(hessian_loss_list, player_list, player_list_flattened, p,
+
+        A_p = avp(hessian_loss_list, player_list, p,
                   bregman=bregman, transpose=False)
-        At_A_p = avp(hessian_loss_list, player_list, player_list_flattened, A_p,
+        At_A_p = avp(hessian_loss_list, player_list, A_p,
                      bregman=bregman, transpose=True)
 
         with torch.no_grad():
-            alpha = torch.div(rdotr, sum(torch.dot(e1, e2) for e1, e2 in zip(p, At_A_p)))
+            alpha = rdotr / utils.player_list_dot(p, At_A_p)
 
             # Update candidate solution and residual, where:
             # (1) x_new = x + alpha * p
             # (2) r_new = r - alpha * A' * p
-            torch._foreach_add_(vector_list_flattened, p, alpha=alpha)
-            torch._foreach_sub_(r, At_A_p, alpha=alpha)
+            utils.player_list_op(vector_list, p,
+                                 utils.INPLACE_ALPHA_ADD_FUNC(alpha))
+            utils.player_list_op(r, At_A_p,
+                                 utils.INPLACE_ALPHA_SUB_FUNC(alpha))
 
             # Calculate new residual metric
-            new_rdotr = sum(torch.dot(r_elem, r_elem) for r_elem in r)
+            new_rdotr = utils.player_list_dot(r, r)
 
             # Break if solution is within threshold
             if new_rdotr < atol or new_rdotr < residual_tol:
@@ -186,15 +171,16 @@ def metamatrix_conjugate_gradient(
 
             # Otherwise, update and continue.
             # (3) p_new = r_new + beta * p
-            beta = torch.div(new_rdotr, rdotr)
-            p = torch._foreach_add(r, p, alpha=beta)
+            beta = new_rdotr / rdotr
+            beta_p = utils.player_list_map(p, lambda x: beta * x)
+            p = utils.player_list_op(r, beta_p, utils.ADD_FUNC)
 
             rdotr = new_rdotr
 
-    return vector_list_flattened, i+1
+    return vector_list, i+1
 
 
-def exp_map(player_list_flattened, nash_list_flattened,
+def exp_map(player_list, nash_list,
             bregman=potentials.squared_distance(1),
             in_place=True
 ):
@@ -206,8 +192,15 @@ def exp_map(player_list_flattened, nash_list_flattened,
     for feasibility constraints specified in Bregman potential.
     """
     with torch.no_grad():
-        mapped = [bregman['Dx'](bregman['Dx_inv'](param) + bregman['Dxx_vp'](param, nash))
-                  for param, nash in zip(player_list_flattened, nash_list_flattened)]
+        def combine(param, nash):
+            return bregman['Dx'](bregman['Dx_inv'](param) +
+                                 bregman['Dxx_vp'](param, nash))
+
+        mapped = tuple(
+            tuple(
+                combine(p, n) for p, n in zip(param, nash)
+            ) for param, nash in zip(player_list, nash_list)
+        )
 
     return mapped
 
@@ -227,7 +220,7 @@ class CMD(object):
         self.bregman = bregman
 
         # In case, parameter generators are provided.
-        player_list = [list(elem) for elem in player_list]
+        player_list = tuple(tuple(elem) for elem in player_list)
 
         # Store optimizer state.
         self.state = {'step': 0,
@@ -249,19 +242,12 @@ class CMD(object):
         return self.state['player_list']
 
     def step(self, loss_list):
-        # Compute flattened player list for some small optimization.
-        player_list = self.state['player_list']
-        player_list_flattened = [flatten_filter_none(player, player, detach=True)
-                                 for player in player_list]
-
         # Compute dual solution first, before mapping back to primal.
-        # Use dual solution as initial guess for numerical speed.
-        nash_list_flattened, n_iter = metamatrix_conjugate_gradient(
+        nash_list, n_iter = metamatrix_conjugate_gradient(
             loss_list,
             loss_list,
-            player_list,
-            player_list_flattened,
-            vector_list_flattened=self.state['last_dual_soln'],
+            self.state['player_list'],
+            vector_list=self.state['last_dual_soln'],
             bregman=self.bregman,
             tol=self.state['tol'],
             atol=self.state['atol']
@@ -269,20 +255,18 @@ class CMD(object):
 
         # Store state for use in next nash computation..
         self.state['step'] += 1
-        self.state['last_dual_soln'] = nash_list_flattened
+        self.state['last_dual_soln'] = nash_list
         self.state['last_dual_soln_n_iter'] = n_iter
 
         # Map dual solution back into primal space.
-        mapped_list_flattened = exp_map(player_list_flattened,
-                                        nash_list_flattened,
-                                        bregman=self.bregman)
+        mapped_list = exp_map(self.state['player_list'],
+                              nash_list,
+                              bregman=self.bregman)
 
         # Update parameters in place to update players as optimizer.
-        for player, mapped_flattened in zip(self.state['player_list'], mapped_list_flattened):
-            idx = 0
-            for p in player:
-                p.data = mapped_flattened[idx: idx + p.numel()].reshape(p.shape)
-                idx += p.numel()
+        for player_params, mapped_params in zip(self.state['player_list'], mapped_list):
+            for param, mapped_param in zip(player_params, mapped_params):
+                param.data = mapped_param
 
 
 class CMD_RL(CMD):
@@ -305,19 +289,14 @@ class CMD_RL(CMD):
         """
         CMD algorithm using derivation for gradient and hessian term from CoPG.
         """
-        # Compute flattened player list for some small optimization.
-        player_list = self.state['player_list']
-        player_list_flattened = [flatten_filter_none(player, player, detach=True)
-                                 for player in player_list]
+        # TODO(jjma): Add documentation.
 
         # Compute dual solution first, before mapping back to primal.
-        # Use dual solution as initial guess for numerical speed.
-        nash_list_flattened, n_iter = metamatrix_conjugate_gradient(
+        nash_list, n_iter = metamatrix_conjugate_gradient(
             grad_loss_list,
             hessian_loss_list,
-            player_list,
-            player_list_flattened,
-            vector_list_flattened=self.state['last_dual_soln'],
+            self.state['player_list'],
+            vector_list=self.state['last_dual_soln'],
             bregman=self.bregman,
             tol=self.state['tol'],
             atol=self.state['atol']
@@ -325,17 +304,15 @@ class CMD_RL(CMD):
 
         # Store state for use in next nash computation..
         self.state['step'] += 1
-        self.state['last_dual_soln'] = nash_list_flattened
+        self.state['last_dual_soln'] = nash_list
         self.state['last_dual_soln_n_iter'] = n_iter
 
         # Map dual solution back into primal space.
-        mapped_list_flattened = exp_map(player_list_flattened,
-                                        nash_list_flattened,
-                                        bregman=self.bregman)
+        mapped_list = exp_map(self.state['player_list'],
+                              nash_list,
+                              bregman=self.bregman)
 
         # Update parameters in place to update players as optimizer.
-        for player, mapped_flattened in zip(self.state['player_list'], mapped_list_flattened):
-            idx = 0
-            for p in player:
-                p.data = mapped_flattened[idx: idx + p.numel()].reshape(p.shape)
-                idx += p.numel()
+        for player_params, mapped_params in zip(self.state['player_list'], mapped_list):
+            for param, mapped_param in zip(player_params, mapped_params):
+                param.data = mapped_param
