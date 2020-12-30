@@ -1,5 +1,6 @@
 import torch
 import unittest
+import time
 
 from multi_cmd import cmd_utils
 from multi_cmd import potentials
@@ -27,20 +28,27 @@ class TestCGDUtils(unittest.TestCase):
         b1 = torch.tensor([1.0, 1.0])
         b2 = torch.tensor([1.0, 1.0])
 
+        start = time.time()
         result1 = cmd_utils.avp([x_loss, y_loss], [[self.x], [self.y]], [self.x, self.y], [b1, b2],
                                     bregman=self.bregman,
                                     transpose=False)
         result2 = cmd_utils.avp([x_loss, y_loss], [[self.x], [self.y]], [self.x, self.y], [b1, b2],
                                     bregman=self.bregman,
                                     transpose=True)
+        result3 = cmd_utils.atvp([x_loss, y_loss], [[self.x], [self.y]], [self.x, self.y], [b1, b2],
+                                    bregman=self.bregman)
 
         expected1 = [torch.tensor([9., 9.]), torch.tensor([-7., -7.])]
         expected2 = [torch.tensor([-7., -7.]), torch.tensor([9., 9.])]
+
 
         for a, b in zip(result1, expected1):
             self.assertTrue(torch.all(torch.eq(a, b)))
 
         for a, b in zip(result2, expected2):
+            self.assertTrue(torch.all(torch.eq(a, b)))
+
+        for a, b in zip(result3, expected2):
             self.assertTrue(torch.all(torch.eq(a, b)))
 
 

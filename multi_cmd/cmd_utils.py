@@ -1,9 +1,11 @@
 import torch
+torch.backends.cudnn.benchmark = True
+
 import torch.autograd as autograd
 
-from multi_cmd import utils
 from multi_cmd import potentials
 
+import time
 
 def zero_grad(params):
     """Given some list of Tensors, zero and reset gradients."""
@@ -30,6 +32,7 @@ def flatten_filter_none(grad_list, param_list, detach=False, neg=False):
     # Use this only if higher order derivatives are not needed.
     if detach:
         result.detach_()
+
     return result
 
 
@@ -40,7 +43,6 @@ def avp(
     vector_list_flattened,
     bregman=potentials.squared_distance(1),
     transpose=False,
-    detach=True,
 ):
     """
     :param hessian_loss_list: list of objective functions for hessian computation
@@ -52,6 +54,7 @@ def avp(
 
     Computes right product of metamatrix with a vector of player vectors.
     """
+
     # TODO(jjma): add error handling and assertions
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
@@ -59,6 +62,7 @@ def avp(
 
     for i, row_params in enumerate(player_list):
         for j, (col_params, vector_elem) in enumerate(zip(player_list, vector_list_flattened)):
+
             if i == j:
                 # Diagonal element is the Bregman term.
 
@@ -71,16 +75,74 @@ def avp(
             # Otherwise, we construct our Hessian vector products. Variable
             # retain_graph must be set to true, or we cant compute multiple
             # subsequent Hessians any more.
+
+            # TODO(jjma): Hessian vector product calculation is our biggest
+            # bottlenecking step, which makes metamatrix vector product inefficient.
             loss = hessian_loss_list[i] if not transpose else hessian_loss_list[j]
 
+            # start = time.time()
             grad_raw = autograd.grad(loss, col_params,
                                      create_graph=True,
                                      retain_graph=True,
                                      allow_unused=True)
             grad_flattened = flatten_filter_none(grad_raw, col_params)
+            # print('grad_time', time.time() - start)
 
+            # start = time.time()
             # Don't need any higher order derivatives, so create_graph = False.
             hvp_raw = autograd.grad(grad_flattened, row_params,
+                                    grad_outputs=vector_elem,
+                                    create_graph=False,
+                                    retain_graph=True,
+                                    allow_unused=True)
+            hvp_flattened = flatten_filter_none(hvp_raw, row_params)
+            # print('hessian_time', time.time() - start)
+
+            prod_list[i] += hvp_flattened
+
+    return prod_list
+
+
+def atvp(
+    hessian_loss_list,
+    player_list,
+    player_list_flattened,
+    vector_list_flattened,
+    bregman=potentials.squared_distance(1),
+):
+    """
+    :param hessian_loss_list: list of objective functions for hessian computation
+    :param player_list: list of list of params for each player to compute gradients from
+    :param player_list_flattened: list of flattened player tensors (without gradients)
+    :param vector_list_flattened: list of flattened vectors for each player
+    :param bregman: dictionary representing bregman potential to use
+
+    Computes right product of transposed metamatrix with a vector of player vectors.
+    """
+    # TODO(jjma): add error handling and assertions
+    # assert(len(hessian_loss_list) == len(player_list))
+    # assert(len(hessian_loss_list) == len(vector_list))
+    prod_list = [torch.zeros_like(v) for v in vector_list_flattened]
+
+    # Since we have overlap at first derivative, pre-compute gradient tensors.
+    col_grads_flattened = []
+    for j, col_params in enumerate(player_list):
+        grad_raw = autograd.grad(hessian_loss_list[j], col_params,
+                                 create_graph=True,
+                                 retain_graph=True,
+                                 allow_unused=True)
+        grad_flattened = flatten_filter_none(grad_raw, col_params)
+        col_grads_flattened.append(grad_flattened)
+
+    for i, row_params in enumerate(player_list):
+        for j, vector_elem in enumerate(vector_list_flattened):
+            if i == j:
+                # Diagonal element is the Bregman term.
+                prod_list[i] += bregman['Dxx_vp'](player_list_flattened[i], vector_elem)
+                continue
+
+            # Don't need any higher order derivatives, so create_graph = False.
+            hvp_raw = autograd.grad(col_grads_flattened[j], row_params,
                                     grad_outputs=vector_elem,
                                     create_graph=False,
                                     retain_graph=True,
@@ -90,6 +152,7 @@ def avp(
             prod_list[i] += hvp_flattened
 
     return prod_list
+
 
 def metamatrix_conjugate_gradient(
     grad_loss_list,
@@ -134,6 +197,10 @@ def metamatrix_conjugate_gradient(
 
     # Multiplying both sides by transpose to ensure p.s.d.
     # r = A^t * b (before we subtract)
+    # TODO(jjma): This single metamatrix product takes 0.4s.
+    # r = atvp(hessian_loss_list, player_list, player_list_flattened, b,
+    #          bregman=bregman)
+
     r = avp(hessian_loss_list, player_list, player_list_flattened, b,
             bregman=bregman, transpose=True)
 
@@ -148,8 +215,12 @@ def metamatrix_conjugate_gradient(
         # Compute initial residual if a guess is given.
         A_x = avp(hessian_loss_list, player_list, player_list_flattened, vector_list_flattened,
                   bregman=bregman, transpose=False)
+        # At_A_x = atvp(hessian_loss_list, player_list, player_list_flattened, A_x,
+        #               bregman=bregman)
+
         At_A_x = avp(hessian_loss_list, player_list, player_list_flattened, A_x,
                      bregman=bregman, transpose=True)
+
         torch._foreach_sub_(r, At_A_x)
 
 
@@ -165,6 +236,9 @@ def metamatrix_conjugate_gradient(
     for i in range(n_steps):
         A_p = avp(hessian_loss_list, player_list, player_list_flattened, p,
                   bregman=bregman, transpose=False)
+        # At_A_p = atvp(hessian_loss_list, player_list, player_list_flattened, A_p,
+        #               bregman=bregman)
+
         At_A_p = avp(hessian_loss_list, player_list, player_list_flattened, A_p,
                      bregman=bregman, transpose=True)
 

@@ -5,7 +5,7 @@ from torch.distributions import Categorical
 
 # Additional imports.
 import numpy as np
-import sys, os
+import sys, os, time
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, '..')
@@ -41,7 +41,7 @@ env = pennies_game()
 
 # Initialize optimizer (changed this to new optimizer)
 # optim = CoPG(p1.parameters(), p2.parameters(), lr=0.5)
-optim = cmd_utils.CMD_RL([p1.parameters(), p2.parameters()], bregman=potentials.squared_distance(0.5))
+optim = cmd_utils.CMD_RL([p1.parameters(), p2.parameters()], bregman=potentials.squared_distance(2))
 
 num_episode = 200
 batch_size = 1000
@@ -114,7 +114,7 @@ for t_eps in range(num_episode):
     # Get log probabilities per player.
     log_probs1 = dist_pi1.log_prob(action_both[:, 0])
     log_probs2 = dist_pi2.log_prob(action_both[:, 1])
-
+    print('log_probs1:', log_probs1)
     # Get right cumulative summed log probabilities (which equals the log of
     # products)
     s_log_probs1 = log_probs1.clone()  # otherwise it doesn't change values
@@ -128,31 +128,43 @@ for t_eps in range(num_episode):
     p1_ob1 = (log_probs1 * log_probs2 * (val1_p)).mean()
     p1_ob2 = (s_log_probs1 * log_probs2 * (val1_p)).mean()
     p1_ob3 = (log_probs1 * s_log_probs2 * (val1_p)).mean()
-    p1_hessian_obj = p1_ob1 + p1_ob2 + p1_ob3
 
 
     p2_ob1 = (log_probs1 * log_probs2 * (val2_p)).mean()
     p2_ob2 = (s_log_probs1 * log_probs2 * (val2_p)).mean()
     p2_ob3 = (log_probs1 * s_log_probs2 * (val2_p)).mean()
-    p2_hessian_obj = p2_ob1 + p2_ob2 + p2_ob3
+
+
+    # Note that in the one-length trajectory case, the hessian and gradients
+    # pseudo objectives are equivalent. It seems like autodiff just takes longer
+    # with seperate objectives.
+    p1_hessian_obj = p1_ob1.mean()
+    p2_hessian_obj = p2_ob1.mean()
 
     p1_gradient_obj = (log_probs1 * val1_p).mean()
     p2_gradient_obj = (log_probs2 * val2_p).mean()
 
     optim.zero_grad()
 
+    optim_time_start = time.time()
+    print('before optim', t_eps)
+
     # Negative objectives, since optimizer minimizes by default.
     optim.step([-p1_gradient_obj, -p2_gradient_obj], [-p1_hessian_obj, -p2_hessian_obj])
 
-    if t_eps%100==0:
-        print('t_eps:', t_eps)
+    print('after optim', t_eps)
+    print('optim took: ', time.time() - optim_time_start)
+    print('cg_iter', optim.state_dict()['last_dual_soln_n_iter'])
 
-        print('policy1 params')
-        for p in p1.parameters():
-            print(p)
-        print('policy2 params')
-        for p in p2.parameters():
-            print(p)
+    if t_eps%100==0:
+        # print('t_eps:', t_eps)
+        #
+        # print('policy1 params')
+        # for p in p1.parameters():
+        #     print(p)
+        # print('policy2 params')
+        # for p in p2.parameters():
+        #     print(p)
 
         torch.save(p1.state_dict(),
                    '../' + folder_location + experiment_name + 'model/agent1_' + str(
