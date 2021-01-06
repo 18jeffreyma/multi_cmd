@@ -1,4 +1,4 @@
-"""Root directory for multi_cmd implementation."""
+"""Utilities for multi-player CGD/CMD implementation."""
 
 __author__ = 'Jeffrey Ma'
 __email__ = 'jjma@caltech.edu'

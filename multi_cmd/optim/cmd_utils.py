@@ -3,7 +3,7 @@ torch.backends.cudnn.benchmark = True
 
 import torch.autograd as autograd
 
-from multi_cmd import potentials
+from multi_cmd.optim import potentials
 
 import time
 
@@ -358,7 +358,9 @@ class CMD(object):
                 p.data = mapped_flattened[idx: idx + p.numel()].reshape(p.shape)
                 idx += p.numel()
 
-
+# TODO(jjma): May need to fix this optimizer for self-play, specifically update
+# method, since we need to update data and not just replace it. If this were
+# self play, only one of the updates calculated from nash would carry through.
 class CMD_RL(CMD):
     """RL optimizer using CMD algorithm, using derivation from CoPG paper."""
     def __init__(self, player_list,
@@ -375,7 +377,7 @@ class CMD_RL(CMD):
                                      tol=tol, atol=atol,
                                      device=device)
 
-    def step(self, grad_loss_list, hessian_loss_list):
+    def step(self, grad_loss_list, hessian_loss_list, cgd=False):
         """
         CMD algorithm using derivation for gradient and hessian term from CoPG.
         """
@@ -402,14 +404,23 @@ class CMD_RL(CMD):
         self.state['last_dual_soln'] = nash_list_flattened
         self.state['last_dual_soln_n_iter'] = n_iter
 
-        # Map dual solution back into primal space.
-        mapped_list_flattened = exp_map(player_list_flattened,
-                                        nash_list_flattened,
-                                        bregman=self.bregman)
+        # Edge case to enable self play in CGD case (since we can compute
+        # element-wise in place operations in CGD).
+        if (cgd):
+            for player, nash_flattened in zip(self.state['player_list'], nash_list_flattened):
+                idx = 0
+                for p in player:
+                    p.data += nash_flattened[idx: idx + p.numel()].reshape(p.shape)
+                    idx += p.numel()
+        else:
+            # Map dual solution back into primal space.
+            mapped_list_flattened = exp_map(player_list_flattened,
+                                            nash_list_flattened,
+                                            bregman=self.bregman)
 
-        # Update parameters in place to update players as optimizer.
-        for player, mapped_flattened in zip(self.state['player_list'], mapped_list_flattened):
-            idx = 0
-            for p in player:
-                p.data = mapped_flattened[idx: idx + p.numel()].reshape(p.shape)
-                idx += p.numel()
+            # Update parameters in place to update players as optimizer.
+            for player, mapped_flattened in zip(self.state['player_list'], mapped_list_flattened):
+                idx = 0
+                for p in player:
+                    p.data = mapped_flattened[idx: idx + p.numel()].reshape(p.shape)
+                    idx += p.numel()

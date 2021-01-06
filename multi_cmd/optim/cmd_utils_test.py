@@ -2,8 +2,8 @@ import torch
 import unittest
 import time
 
-from multi_cmd import cmd_utils
-from multi_cmd import potentials
+from multi_cmd.optim import cmd_utils
+from multi_cmd.optim import potentials
 
 class TestCGDUtils(unittest.TestCase):
 
@@ -103,6 +103,26 @@ class TestCGDUtils(unittest.TestCase):
         player_list = [[self.x], [self.y]]
         optim = cmd_utils.CMD(player_list, bregman=self.bregman)
         optim.step(test_payoff(player_list))
+
+        result = [elem[0] for elem in player_list]
+        expected = [torch.tensor([1 - 0.5538, 1 - 0.5538]), torch.tensor([1 - 0.4308, 1 - 0.4308])]
+        for a, b in zip(result, expected):
+            self.assertTrue(torch.all(torch.isclose(a, b, atol=1e-03,)))
+
+
+    def testTwoPlayerOptimSqDistInplace(self):
+        """
+        For the squared distance Bregman potential, we test that our implementation is correct.
+        """
+        def test_payoff(param_list):
+            return [
+                torch.sum(torch.pow(self.x, 2)) * torch.sum(torch.pow(self.y, 2)),
+                -torch.sum(torch.pow(self.x, 2)) * torch.sum(torch.pow(self.y, 2))
+            ]
+
+        player_list = [[self.x], [self.y]]
+        optim = cmd_utils.CMD_RL(player_list, bregman=self.bregman)
+        optim.step(test_payoff(player_list), test_payoff(player_list), cgd=True)
 
         result = [elem[0] for elem in player_list]
         expected = [torch.tensor([1 - 0.5538, 1 - 0.5538]), torch.tensor([1 - 0.4308, 1 - 0.4308])]

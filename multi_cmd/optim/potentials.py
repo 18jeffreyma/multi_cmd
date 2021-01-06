@@ -1,7 +1,6 @@
 """Provided Bregman potentials."""
 import torch
 
-
 def squared_distance(alpha):
     """
     This potential recovers the CGD algorithm, with no value constraints

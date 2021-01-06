@@ -34,29 +34,3 @@ def init_weights(m):
     if isinstance(m, nn.Linear):
         nn.init.normal_(m.weight, mean=0., std=0.1)
         nn.init.constant_(m.bias, 0.1)
-
-class critic(nn.Module):
-    def __init__(self, state_dim):
-        super(critic, self).__init__()
-
-        self.critic = nn.Sequential(nn.Linear(state_dim, 24),  # 84*50
-                                    nn.Tanh(),
-                                    nn.Linear(24, 24),  # 50*20
-                                    nn.Tanh(),
-                                    nn.Linear(24, 1))  # 20*2
-
-        #self.apply(init_weights)
-
-    def forward(self, state):
-        value = self.critic(state)
-        return value
-
-# class critic(nn.Module):
-#     def __init__(self, state_dim):
-#         super(critic, self).__init__()
-#         self.critic = nn.Sequential(nn.Linear(state_dim, 1),  # 2(self and other's position) * 2(action)
-#                                    nn.Tanh(),
-#                                     )  # 20*2
-#     def forward(self, state):
-#         val = self.critic(state)
-#         return val
