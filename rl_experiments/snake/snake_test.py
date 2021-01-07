@@ -14,7 +14,7 @@ policy_list = [policy() for _ in range(num_players)]
 
 for i in range(num_players):
     policy_list[i].load_state_dict(
-        torch.load(folder_location + experiment_name + 'model/agent' + str(i) + "_40.pth")
+        torch.load(folder_location + experiment_name + 'model/agent' + str(i) + "_140.pth")
     )
 
 env = gym.make('python_4p-v1')

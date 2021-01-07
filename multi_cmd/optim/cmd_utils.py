@@ -162,8 +162,8 @@ def metamatrix_conjugate_gradient(
     vector_list_flattened=None,
     bregman=potentials.squared_distance(1),
     n_steps=5,
-    tol=1e-6,
-    atol=1e-6,
+    tol=1e-3,
+    atol=1e-4,
 ):
     """
     :param grad_loss_list: list of loss tensors for each player to compute gradient
@@ -265,7 +265,7 @@ def metamatrix_conjugate_gradient(
 
             rdotr = new_rdotr
 
-    return vector_list_flattened, i+1
+    return vector_list_flattened, i+1, rdotr
 
 
 def exp_map(player_list_flattened, nash_list_flattened,
@@ -291,7 +291,7 @@ class CMD(object):
     """Optimizer class for the CMD algorithm with differentiable player objectives."""
     def __init__(self, player_list,
                  bregman=potentials.squared_distance(1),
-                 tol=1e-6, atol=1e-6,
+                 tol=1e-4, atol=1e-5,
                  device=torch.device('cpu')
                 ):
         """
@@ -330,7 +330,7 @@ class CMD(object):
 
         # Compute dual solution first, before mapping back to primal.
         # Use dual solution as initial guess for numerical speed.
-        nash_list_flattened, n_iter = metamatrix_conjugate_gradient(
+        nash_list_flattened, n_iter, res = metamatrix_conjugate_gradient(
             loss_list,
             loss_list,
             player_list,
@@ -345,6 +345,7 @@ class CMD(object):
         self.state['step'] += 1
         self.state['last_dual_soln'] = nash_list_flattened
         self.state['last_dual_soln_n_iter'] = n_iter
+        self.state['last_dual_residual'] = res
 
         # Map dual solution back into primal space.
         mapped_list_flattened = exp_map(player_list_flattened,
@@ -365,7 +366,7 @@ class CMD_RL(CMD):
     """RL optimizer using CMD algorithm, using derivation from CoPG paper."""
     def __init__(self, player_list,
                  bregman=potentials.squared_distance(1),
-                 tol=1e-6, atol=1e-6,
+                 tol=1e-3, atol=1e-4,
                  device=torch.device('cpu')
                 ):
         """
@@ -388,7 +389,7 @@ class CMD_RL(CMD):
 
         # Compute dual solution first, before mapping back to primal.
         # Use dual solution as initial guess for numerical speed.
-        nash_list_flattened, n_iter = metamatrix_conjugate_gradient(
+        nash_list_flattened, n_iter, res = metamatrix_conjugate_gradient(
             grad_loss_list,
             hessian_loss_list,
             player_list,
@@ -403,6 +404,7 @@ class CMD_RL(CMD):
         self.state['step'] += 1
         self.state['last_dual_soln'] = nash_list_flattened
         self.state['last_dual_soln_n_iter'] = n_iter
+        self.state['last_dual_residual'] = res
 
         # Edge case to enable self play in CGD case (since we can compute
         # element-wise in place operations in CGD).

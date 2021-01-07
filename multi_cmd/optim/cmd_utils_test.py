@@ -64,7 +64,7 @@ class TestCGDUtils(unittest.TestCase):
         x_loss = torch.sum(torch.pow(self.x, 2)) * torch.sum(torch.pow(self.y, 2))
         y_loss = - torch.sum(torch.pow(self.x, 2)) * torch.sum(torch.pow(self.y, 2))
 
-        result, n_iter = cmd_utils.metamatrix_conjugate_gradient(
+        result, n_iter, _ = cmd_utils.metamatrix_conjugate_gradient(
             [x_loss, y_loss],
             [x_loss, y_loss],
             [[self.x], [self.y]],

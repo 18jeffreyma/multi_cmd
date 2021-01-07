@@ -31,9 +31,10 @@ writer = SummaryWriter(folder_location + experiment_name + 'data')
 # TODO(jjma): Load policy from last training.
 
 # Initialize policy for both agents for matching pennies.
+# p1 = policy()
 p1 = policy()
 policy_list = [p1 for _ in range(4)]
-q = critic(4)
+q = critic()
 
 # Initialize game environment.
 env = gym.make('python_4p-v1')
@@ -46,8 +47,8 @@ optim_q = torch.optim.Adam(q.parameters(), lr=1e-2)
 # Game parameters...
 num_players = 4
 num_episode = 1000
-batch_size = 10
-horizon_length = 100
+batch_size = 20
+horizon_length = 25
 
 # Initial params, see if it can learn to not hit walls and to eat fruit.
 
@@ -133,15 +134,14 @@ for t_eps in range(1, num_episode+1):
 
     s_log_probs = [elem.clone() for elem in log_probs]
 
-    for i in range(len(log_probs)):
-        for j in range(num_players):
+    for j in range(num_players):
+        for i in range(len(log_probs[j])):
             if i == 0 or mat_done_t[i-1][j] == 0:
                 s_log_probs[j][i] = 0
             else:
                 s_log_probs[j][i] = torch.add(s_log_probs[j][i-1], log_probs[j][i-1])
 
-    hessian_losses = [0] * num_players
-
+    hessian_losses = [0.] * num_players
     for i in range(num_players):
         for j in range(num_players):
             if (i != j):
@@ -157,6 +157,10 @@ for t_eps in range(1, num_episode+1):
 
     # Negative objectives, since optimizer minimizes by default.
     optim.step(gradient_losses, hessian_losses, cgd=True)
+
+    print('conj gradient iter:', optim.state_dict()['last_dual_soln_n_iter'])
+    print('conj gradient residual:', optim.state_dict()['last_dual_residual'])
+
 
     print('finish_optim')
 
