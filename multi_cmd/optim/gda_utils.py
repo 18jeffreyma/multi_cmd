@@ -1,5 +1,5 @@
 import torch
-
+import torch.autograd as autograd
 
 # TODO(jjma): make this user interface cleaner.
 class SGD(object):
@@ -12,15 +12,10 @@ class SGD(object):
         :param player_list: list (per player) of list of Tensors, representing parameters
         :param lr_list: list of learning rates per player optimizer.
         """
-
-        # Create new SGD optimizer per player.
-        optim_list = []
-        for player, lr in zip(player_list, lr_list):
-            optim_list.append(torch.optim.SGD(player, lr=lr))
-
         # Store optimizer state.
         self.state = {'step': 0,
-                      'optim_list': optim_list}
+                      'player_list': player_list,
+                      'lr_list': lr_list}
         # TODO(jjma): set this device in CMD algorithm.
         self.device = device
 
@@ -32,10 +27,14 @@ class SGD(object):
         return self.state
 
     def step(self, loss_list):
-        for optim, loss in zip(self.state['optim_list'], loss_list):
-            optim.zero_grad()
-            loss.backward()
-            optim.step()
+        grad_list = [
+            autograd.grad(loss, player, retain_graph=True)
+            for loss, player in zip(loss_list, self.state['player_list'])
+        ]
+
+        for grad, player, lr in zip(grad_list, self.state['player_list'], self.state['lr_list']):
+            torch._foreach_add_(player, grad, alpha=-lr)
+
 
 
 # TODO(jjma): Write a formal optimizer for CGD.

@@ -54,7 +54,6 @@ def avp(
 
     Computes right product of metamatrix with a vector of player vectors.
     """
-
     # TODO(jjma): add error handling and assertions
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
@@ -161,9 +160,9 @@ def metamatrix_conjugate_gradient(
     player_list_flattened,
     vector_list_flattened=None,
     bregman=potentials.squared_distance(1),
-    n_steps=5,
-    tol=1e-3,
-    atol=1e-4,
+    n_steps=None,
+    tol=1e-6,
+    atol=1e-6,
 ):
     """
     :param grad_loss_list: list of loss tensors for each player to compute gradient
@@ -176,15 +175,18 @@ def metamatrix_conjugate_gradient(
     :param tol: relative residual tolerance threshold from initial vector guess
     :param atol: absolute residual tolerance threshold
 
-    Compute solution to meta-matrix game form using conjugate gradient method. Since
-    the metamatrix A is not p.s.d, we multiply both sides by the transpose to
-    ensure p.s.d.
+    Compute solution to meta-matrix game form using preconditioned conjugate
+    gradient method. Since the metamatrix A is not p.s.d, we multiply both sides
+    by the transpose to ensure p.s.d.
 
     In other words, note that solving Ax = b (where A is meta matrix, x is
     vector of update vectors and b is learning rate times vector of gradients
     is the same as solving A'x = b' (where A' = (A^T)A and b' = (A^T)b.
     """
 
+    if n_steps is None:
+        # n_steps = max([sum([elem.numel() for elem in param_list]) for param_list in player_list])
+        n_steps = 20
     b = []
     for loss, param_tensors in zip(grad_loss_list, player_list):
         # Get vector list of negative gradients.
@@ -197,9 +199,6 @@ def metamatrix_conjugate_gradient(
 
     # Multiplying both sides by transpose to ensure p.s.d.
     # r = A^t * b (before we subtract)
-    # TODO(jjma): This single metamatrix product takes 0.4s.
-    # r = atvp(hessian_loss_list, player_list, player_list_flattened, b,
-    #          bregman=bregman)
 
     r = avp(hessian_loss_list, player_list, player_list_flattened, b,
             bregman=bregman, transpose=True)
@@ -215,35 +214,35 @@ def metamatrix_conjugate_gradient(
         # Compute initial residual if a guess is given.
         A_x = avp(hessian_loss_list, player_list, player_list_flattened, vector_list_flattened,
                   bregman=bregman, transpose=False)
-        # At_A_x = atvp(hessian_loss_list, player_list, player_list_flattened, A_x,
-        #               bregman=bregman)
-
         At_A_x = avp(hessian_loss_list, player_list, player_list_flattened, A_x,
                      bregman=bregman, transpose=True)
 
         torch._foreach_sub_(r, At_A_x)
 
+    # Use preconditioner if available...
+    z = r
+    if 'Dxx_inv_vp' in bregman:
+        z = [bregman['Dxx_inv_vp'](params, r_elems)
+             for params, r_elems in zip(player_list_flattened, r)]
 
     # Early exit if solution already found.
     rdotr = sum(torch.dot(r_elem, r_elem) for r_elem in r)
+    rdotz = sum(torch.dot(r_elem, z_elem) for r_elem, z_elem in zip(r, z))
     if rdotr < residual_tol or rdotr < atol:
-        return vector_list_flattened, 0
+        return vector_list_flattened, 0, rdotr
 
     # Define p and measure current candidate vector.
-    p = [r_elem.clone().detach() for r_elem in r]
+    p = [z_elem.clone().detach() for z_elem in z]
 
     # Use conjugate gradient to find vector solution.
     for i in range(n_steps):
         A_p = avp(hessian_loss_list, player_list, player_list_flattened, p,
                   bregman=bregman, transpose=False)
-        # At_A_p = atvp(hessian_loss_list, player_list, player_list_flattened, A_p,
-        #               bregman=bregman)
-
         At_A_p = avp(hessian_loss_list, player_list, player_list_flattened, A_p,
                      bregman=bregman, transpose=True)
 
         with torch.no_grad():
-            alpha = torch.div(rdotr, sum(torch.dot(e1, e2) for e1, e2 in zip(p, At_A_p)))
+            alpha = torch.div(rdotz, sum(torch.dot(e1, e2) for e1, e2 in zip(p, At_A_p)))
 
             # Update candidate solution and residual, where:
             # (1) x_new = x + alpha * p
@@ -258,12 +257,21 @@ def metamatrix_conjugate_gradient(
             if new_rdotr < atol or new_rdotr < residual_tol:
                 break
 
+            # If preconditioner provided, use it...
+            z = r
+            if 'Dxx_inv_vp' in bregman:
+                z = [bregman['Dxx_inv_vp'](params, r_elems)
+                     for params, r_elems in zip(player_list_flattened, r)]
+
+            new_rdotz = sum(torch.dot(r_elem, z_elem) for r_elem, z_elem in zip(r, z))
+
             # Otherwise, update and continue.
             # (3) p_new = r_new + beta * p
-            beta = torch.div(new_rdotr, rdotr)
-            p = torch._foreach_add(r, p, alpha=beta)
+            beta = torch.div(new_rdotz, rdotz)
+            p = torch._foreach_add(z, p, alpha=beta)
 
             rdotr = new_rdotr
+            rdotz = new_rdotz
 
     return vector_list_flattened, i+1, rdotr
 
@@ -366,7 +374,7 @@ class CMD_RL(CMD):
     """RL optimizer using CMD algorithm, using derivation from CoPG paper."""
     def __init__(self, player_list,
                  bregman=potentials.squared_distance(1),
-                 tol=1e-3, atol=1e-4,
+                 tol=1e-5, atol=1e-6,
                  device=torch.device('cpu')
                 ):
         """
@@ -399,6 +407,7 @@ class CMD_RL(CMD):
             tol=self.state['tol'],
             atol=self.state['atol']
         )
+
 
         # Store state for use in next nash computation..
         self.state['step'] += 1

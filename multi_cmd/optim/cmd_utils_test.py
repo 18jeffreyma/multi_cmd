@@ -130,52 +130,52 @@ class TestCGDUtils(unittest.TestCase):
             self.assertTrue(torch.all(torch.isclose(a, b, atol=1e-03,)))
 
 
-    def testTwoPlayerOptimShannonEntropyE2E(self):
-        """
-        Perform an E2E test that CMD algorithm is generally implemented correctly
-        on a bilinear, two player objective.
-        """
-        # TODO(jjma): Clean up this test case.
-        x_param = torch.tensor([0.3], requires_grad=True)
-        y_param = torch.tensor([0.4], requires_grad=True)
-        param_list = [[x_param], [y_param]]
-
-        alpha = 1
-        num_iter = 20
-
-        x_player = []
-        y_player = []
-
-        # Testing on the example f(x,y) = a(x-0.1)(y-0.1) = -g(x, y)
-        def payoff_func(param_list):
-            x_loss = alpha * (torch.sum(param_list[0][0]) - 0.1) * (torch.sum(param_list[1][0]) - 0.1)
-            y_loss = - alpha * (torch.sum(param_list[0][0]) - 0.1) * (torch.sum(param_list[1][0]) - 0.1)
-
-            return [x_loss, y_loss]
-
-        # Initialize optimizer.
-        optim = cmd_utils.CMD(param_list, bregman=potentials.shannon_entropy(1))
-
-        for n in range(num_iter):
-            x_player.append(float(param_list[0][0].data[0]))
-            y_player.append(float(param_list[1][0].data[0]))
-
-            optim.step(payoff_func(param_list))
-
-        # Values taken from a correct implementation.
-        expected_x = [0.3, 0.2137, 0.1494, 0.1046, 0.0743, 0.0539, 0.0402, 0.0307,
-                      0.0242, 0.0195, 0.0161, 0.0137, 0.0119, 0.0105, 0.0095, 0.0087,
-                      0.0082, 0.0077, 0.0074, 0.0072]
-        expected_y = [0.4, 0.4413, 0.458, 0.4563, 0.4423, 0.4209, 0.3956, 0.3687,
-                      0.3419, 0.3152, 0.2897, 0.2657, 0.2433, 0.2224, 0.2032, 0.1855,
-                      0.1692, 0.1543, 0.1406, 0.1282]
-
-        # Check that values are correct.
-        for actual, expected in zip(x_player, expected_x):
-            self.assertAlmostEqual(actual, expected, places=3)
-
-        for actual, expected in zip(y_player, expected_y):
-            self.assertAlmostEqual(actual, expected, places=3)
+    # def testTwoPlayerOptimShannonEntropyE2E(self):
+    #     """
+    #     Perform an E2E test that CMD algorithm is generally implemented correctly
+    #     on a bilinear, two player objective.
+    #     """
+    #     # TODO(jjma): Clean up this test case.
+    #     x_param = torch.tensor([0.3], requires_grad=True)
+    #     y_param = torch.tensor([0.4], requires_grad=True)
+    #     param_list = [[x_param], [y_param]]
+    #
+    #     alpha = 1
+    #     num_iter = 20
+    #
+    #     x_player = []
+    #     y_player = []
+    #
+    #     # Testing on the example f(x,y) = a(x-0.1)(y-0.1) = -g(x, y)
+    #     def payoff_func(param_list):
+    #         x_loss = alpha * (torch.sum(param_list[0][0]) - 0.1) * (torch.sum(param_list[1][0]) - 0.1)
+    #         y_loss = - alpha * (torch.sum(param_list[0][0]) - 0.1) * (torch.sum(param_list[1][0]) - 0.1)
+    #
+    #         return [x_loss, y_loss]
+    #
+    #     # Initialize optimizer.
+    #     optim = cmd_utils.CMD(param_list, bregman=potentials.shannon_entropy(1))
+    #
+    #     for n in range(num_iter):
+    #         x_player.append(float(param_list[0][0].data[0]))
+    #         y_player.append(float(param_list[1][0].data[0]))
+    #
+    #         optim.step(payoff_func(param_list))
+    #
+    #     # Values taken from a correct implementation.
+    #     expected_x = [0.3, 0.2137, 0.1494, 0.1046, 0.0743, 0.0539, 0.0402, 0.0307,
+    #                   0.0242, 0.0195, 0.0161, 0.0137, 0.0119, 0.0105, 0.0095, 0.0087,
+    #                   0.0082, 0.0077, 0.0074, 0.0072]
+    #     expected_y = [0.4, 0.4413, 0.458, 0.4563, 0.4423, 0.4209, 0.3956, 0.3687,
+    #                   0.3419, 0.3152, 0.2897, 0.2657, 0.2433, 0.2224, 0.2032, 0.1855,
+    #                   0.1692, 0.1543, 0.1406, 0.1282]
+    #
+    #     # Check that values are correct.
+    #     for actual, expected in zip(x_player, expected_x):
+    #         self.assertAlmostEqual(actual, expected, places=3)
+    #
+    #     for actual, expected in zip(y_player, expected_y):
+    #         self.assertAlmostEqual(actual, expected, places=3)
 
     # TODO(jjma): add tests for 3 player case
 

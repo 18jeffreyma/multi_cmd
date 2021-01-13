@@ -15,7 +15,10 @@ def squared_distance(alpha):
         # Does not need to be in-place.
         return vec * alpha
 
-    return {'Dx': Dx, 'Dx_inv': Dx_inv, 'Dxx_vp': Dxx_vp}
+    def Dxx_inv_vp(x_primal, vec):
+        return vec / alpha
+
+    return {'Dx': Dx, 'Dx_inv': Dx_inv, 'Dxx_vp': Dxx_vp, 'Dxx_inv_vp': Dxx_inv_vp}
 
 
 def shannon_entropy(alpha):
