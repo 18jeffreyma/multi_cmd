@@ -35,8 +35,6 @@ class TestCGDUtils(unittest.TestCase):
         result2 = cmd_utils.avp([x_loss, y_loss], [[self.x], [self.y]], [self.x, self.y], [b1, b2],
                                     bregman=self.bregman,
                                     transpose=True)
-        result3 = cmd_utils.atvp([x_loss, y_loss], [[self.x], [self.y]], [self.x, self.y], [b1, b2],
-                                    bregman=self.bregman)
 
         expected1 = [torch.tensor([9., 9.]), torch.tensor([-7., -7.])]
         expected2 = [torch.tensor([-7., -7.]), torch.tensor([9., 9.])]
@@ -46,9 +44,6 @@ class TestCGDUtils(unittest.TestCase):
             self.assertTrue(torch.all(torch.eq(a, b)))
 
         for a, b in zip(result2, expected2):
-            self.assertTrue(torch.all(torch.eq(a, b)))
-
-        for a, b in zip(result3, expected2):
             self.assertTrue(torch.all(torch.eq(a, b)))
 
 

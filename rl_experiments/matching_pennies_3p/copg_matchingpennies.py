@@ -144,6 +144,16 @@ for t_eps in range(1, num_episode + 1):
                    folder_location + experiment_name + 'model/agent3_' + str(
                        t_eps) + ".pth")
 
+        torch.save(p1.state_dict(),
+                   folder_location + experiment_name + 'model/critic1_' + str(
+                       t_eps) + ".pth")
+        torch.save(p2.state_dict(),
+                   folder_location + experiment_name + 'model/critic2_' + str(
+                       t_eps) + ".pth")
+        torch.save(p3.state_dict(),
+                   folder_location + experiment_name + 'model/critic3_' + str(
+                       t_eps) + ".pth")
+
 print('final policy probabilities:')
 print('p1 policy', p1())
 print('p2 policy', p2())
