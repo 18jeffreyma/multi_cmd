@@ -35,7 +35,7 @@ if not os.path.exists(directory):
     os.makedirs(directory)
 writer = SummaryWriter(folder_location + experiment_name + 'data')
 
-last_teps = 8000
+last_teps = 10000
 
 # Initialize policy for both agents for matching pennies.
 a = AdversaryPolicy()
@@ -61,14 +61,14 @@ p1_critic.load_state_dict(
 
 # Initialize optimizer (changed this to new optimizer). Alpha is inverse of learning rate.
 optim = cmd_utils.CMD_RL([a.parameters(), p1.parameters(), p1.parameters()],
-                         bregman=potentials.squared_distance(1000))
+                         bregman=potentials.squared_distance(500))
 
 aq_optim = torch.optim.Adam(a_critic.parameters(), lr=1e-3)
 pq1_optim = torch.optim.Adam(p1_critic.parameters(), lr=1e-3)
 # pq2_optim = torch.optim.Adam(p2_critic.parameters(), lr=1e-2)
 
 # Game parameters...
-num_episode = 10000
+num_episode = 20000
 batch_size = 50
 horizon_length = 40
 

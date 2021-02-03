@@ -28,10 +28,8 @@ if not os.path.exists(directory):
     os.makedirs(directory)
 writer = SummaryWriter(folder_location + experiment_name + 'data')
 
-# TODO(jjma): Load policy from last training.
-
 # Initialize policy for both agents for matching pennies.
-# p1 = policy()
+
 p1 = policy()
 policy_list = [p1 for _ in range(4)]
 q = critic()
@@ -41,7 +39,7 @@ env = gym.make('python_4p-v1')
 
 # Initialize optimizer (changed this to new optimizer). Alpha is inverse of learning rate.
 optim = cmd_utils.CMD_RL([p.parameters() for p in policy_list],
-                         bregman=potentials.squared_distance(10))
+                          bregman=potentials.squared_distance(100))
 optim_q = torch.optim.Adam(q.parameters(), lr=1e-2)
 
 # Game parameters...
@@ -50,7 +48,6 @@ num_episode = 1000
 batch_size = 20
 horizon_length = 25
 
-# Initial params, see if it can learn to not hit walls and to eat fruit.
 
 for t_eps in range(1, num_episode+1):
     print('t_eps:', t_eps)

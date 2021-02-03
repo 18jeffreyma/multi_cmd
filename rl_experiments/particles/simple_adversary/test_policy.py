@@ -37,7 +37,7 @@ if not os.path.exists(directory):
 writer = SummaryWriter(folder_location + experiment_name + 'data')
 
 
-t_eps = 8000
+t_eps = 1   0000
 
 a = AdversaryPolicy()
 a.load_state_dict(
@@ -57,7 +57,7 @@ p2.load_state_dict(
 
 while(True):
     obs = env.reset()
-    for i in range(25):
+    for i in range(40):
         env.render()
 
         a_dist = a(torch.FloatTensor(obs[0]))

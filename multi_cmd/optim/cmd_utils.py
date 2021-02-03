@@ -10,8 +10,9 @@ def zero_grad(params):
             p.grad.detach()
             p.grad.zero_()
 
-
-def flatten_filter_none(grad_list, param_list, detach=False, neg=False,
+def flatten_filter_none(grad_list, param_list,
+                        detach=False,
+                        neg=False,
                         device=torch.device('cpu')):
     """
     Given a list of Tensors with possible None values, returns single Tensor
@@ -62,10 +63,6 @@ def avp(
 
             if i == j:
                 # Diagonal element is the Bregman term.
-
-                # TODO(jjma): Check if all Bregman potentials can be evaluated
-                # element-wise; if so, we can evaluate this tensor by tensor as
-                # below.
                 prod_list[i] += bregman['Dxx_vp'](player_list_flattened[i], vector_elem)
                 continue
 
@@ -74,7 +71,6 @@ def avp(
             # subsequent Hessians any more.
             loss = hessian_loss_list[i] if not transpose else hessian_loss_list[j]
 
-            # start = time.time()
             grad_raw = autograd.grad(loss, col_params,
                                      create_graph=True,
                                      retain_graph=True,
@@ -90,7 +86,6 @@ def avp(
                                     allow_unused=True)
             hvp_flattened = flatten_filter_none(hvp_raw, row_params,
                                                 device=device)
-            # print('hessian_time', time.time() - start)
 
             prod_list[i] += hvp_flattened
 
@@ -119,17 +114,12 @@ def antivp(
     # TODO(jjma): add error handling and assertions
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
-    prod_list = [torch.zeros_like(v, device=device)
-                 for v in vector_list_flattened]
+    prod_list = [torch.zeros_like(v, device=device) for v in vector_list_flattened]
 
     for i, row_params in enumerate(player_list):
         for j, (col_params, vector_elem) in enumerate(zip(player_list, vector_list_flattened)):
             if i == j:
                 # Diagonal element is the Bregman term.
-
-                # TODO(jjma): Check if all Bregman potentials can be evaluated
-                # element-wise; if so, we can evaluate this tensor by tensor as
-                # below.
                 prod_list[i] += bregman['Dxx_vp'](player_list_flattened[i], vector_elem)
                 continue
 
@@ -254,7 +244,7 @@ def metamatrix_conjugate_gradient(
         return vector_list_flattened, 0, rdotr
 
     # Define p and measure current candidate vector.
-    p = [z_elem.clone().detach().to(device) for z_elem in z]
+    p = [z_elem.clone().detach() for z_elem in z]
 
     # Use conjugate gradient to find vector solution.
     for i in range(n_steps):
@@ -284,7 +274,6 @@ def metamatrix_conjugate_gradient(
             if 'Dxx_inv_vp' in bregman:
                 z = [bregman['Dxx_inv_vp'](params, r_elems)
                      for params, r_elems in zip(player_list_flattened, r)]
-
             new_rdotz = sum(torch.dot(r_elem, z_elem) for r_elem, z_elem in zip(r, z))
 
             # Otherwise, update and continue.
@@ -335,8 +324,10 @@ class CMD(object):
         # In case, parameter generators are provided.
         player_list = [list(elem) for elem in player_list]
 
+        # Conjugate gradient will provably converge in number of params steps.
         if n_steps is None:
-            n_steps = max([sum([elem.numel() for elem in param_list]) for param_list in player_list])
+            n_steps = sum([sum([elem.numel() for elem in param_list])
+                           for param_list in player_list]))
 
         # Store optimizer state.
         self.state = {'step': 0,

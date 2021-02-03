@@ -1,6 +1,10 @@
 """Provided Bregman potentials."""
 import torch
 
+# TODO(jjma): Check if all Bregman potentials can be evaluated
+# element-wise; if so, we can evaluate this tensor by tensor as
+# below.
+
 def squared_distance(alpha):
     """
     This potential recovers the CGD algorithm, with no value constraints
