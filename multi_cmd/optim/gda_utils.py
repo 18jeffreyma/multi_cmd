@@ -33,7 +33,10 @@ class SGD(object):
         ]
 
         for grad, player, lr in zip(grad_list, self.state['player_list'], self.state['lr_list']):
-            torch._foreach_add_(player, grad, alpha=-lr)
+            for player_elem, grad_elem in zip(player, grad):
+                player_elem.data -= grad_elem * lr
+             
+            # torch._foreach_add_(player, grad, alpha=-lr)
 
 
 

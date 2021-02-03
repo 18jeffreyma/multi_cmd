@@ -1,5 +1,6 @@
 import torch
 import torch.autograd as autograd
+import time
 
 from multi_cmd.optim import potentials
 
@@ -41,7 +42,8 @@ def avp(
     vector_list_flattened,
     bregman=potentials.squared_distance(1),
     transpose=False,
-    device=torch.device('cpu')
+    device=torch.device('cpu'),
+    verbose=True
 ):
     """
     :param hessian_loss_list: list of objective functions for hessian computation
@@ -69,12 +71,20 @@ def avp(
             # Otherwise, we construct our Hessian vector products. Variable
             # retain_graph must be set to true, or we cant compute multiple
             # subsequent Hessians any more.
+            
             loss = hessian_loss_list[i] if not transpose else hessian_loss_list[j]
+
+            if verbose:
+                start_time = time.time()
 
             grad_raw = autograd.grad(loss, col_params,
                                      create_graph=True,
                                      retain_graph=True,
                                      allow_unused=True)
+            
+            if verbose:
+                print("Grad took:", time.time() - start_time)
+                
             grad_flattened = flatten_filter_none(grad_raw, col_params,
                                                  device=device)
 
@@ -228,8 +238,11 @@ def metamatrix_conjugate_gradient(
                   bregman=bregman, transpose=False, device=device)
         At_A_x = mvp(hessian_loss_list, player_list, player_list_flattened, A_x,
                      bregman=bregman, transpose=True, device=device)
-
-        torch._foreach_sub_(r, At_A_x)
+        
+        # torch._foreach_sub_(r, At_A_x)
+        for r_elem, At_A_x_elem in zip(r, At_A_x):
+            r_elem -= At_A_x_elem
+      
 
     # Use preconditioner if available...
     z = r
@@ -259,9 +272,15 @@ def metamatrix_conjugate_gradient(
             # Update candidate solution and residual, where:
             # (1) x_new = x + alpha * p
             # (2) r_new = r - alpha * A' * p
-            torch._foreach_add_(vector_list_flattened, p, alpha=alpha)
-            torch._foreach_sub_(r, At_A_p, alpha=alpha)
 
+            # torch._foreach_add_(vector_list_flattened, p, alpha=alpha)
+            # torch._foreach_sub_(r, At_A_p, alpha=alpha)
+            
+            for vlf_elem, p_elem in zip(vector_list_flattened, p):
+                vlf_elem += p_elem * alpha
+            for r_elem, At_A_P_elem in zip(r, At_A_p):
+                r_elem -= At_A_P_elem * alpha
+            
             # Calculate new residual metric
             new_rdotr = sum(torch.dot(r_elem, r_elem) for r_elem in r)
 
@@ -278,8 +297,10 @@ def metamatrix_conjugate_gradient(
 
             # Otherwise, update and continue.
             # (3) p_new = r_new + beta * p
+            
+            # torch._foreach_add(z, p, alpha=beta)
             beta = torch.div(new_rdotz, rdotz)
-            p = torch._foreach_add(z, p, alpha=beta)
+            p = [z_elem + p_elem * beta for z_elem, p_elem in zip(z, p)]
 
             rdotr = new_rdotr
             rdotz = new_rdotz
@@ -327,7 +348,7 @@ class CMD(object):
         # Conjugate gradient will provably converge in number of params steps.
         if n_steps is None:
             n_steps = sum([sum([elem.numel() for elem in param_list])
-                           for param_list in player_list]))
+                           for param_list in player_list])
 
         # Store optimizer state.
         self.state = {'step': 0,
