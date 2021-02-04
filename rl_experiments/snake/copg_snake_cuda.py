@@ -60,12 +60,12 @@ for t_eps in range(1, num_episode+1):
     mat_rewards_t = []
     mat_done_t = []
 
-    
+
     batch_start_time = time.time()
     for j in range(batch_size):
         # Reset environment for each trajectory in batch.
         obs = env.reset()
-        
+
         while (True):
             # Record state...
             mat_states_t.append(obs)
@@ -81,7 +81,7 @@ for t_eps in range(1, num_episode+1):
             obs, rewards, dones, _ = env.step(actions)
 
             # Record done for calculating advantage later...
-            mat_done_t.append(1 - dones)
+            mat_done_t.append(~dones)
             mat_rewards_t.append(rewards)
             if (all(dones)):
                 break
