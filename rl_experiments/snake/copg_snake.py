@@ -3,6 +3,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.distributions import Categorical
 
+device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
+
 # Additional imports.
 import numpy as np
 import sys, os, time
@@ -14,8 +16,7 @@ from multi_cmd.rl_utils.critic_functions import critic_update, get_advantage
 
 # Import multiplayer CMD RL optimizer.
 # from copg_optim import CoPG
-from multi_cmd.optim import cmd_utils
-from multi_cmd.optim import potentials
+from multi_cmd.optim import cmd_utils, potentials
 
 # Import game utilities from marlenv package.
 import gym, envs
@@ -57,6 +58,7 @@ for t_eps in range(1, num_episode+1):
     mat_done_t = []
 
     for j in range(batch_size):
+        print(j)
         # Reset environment for each trajectory in batch.
         obs = env.reset()
         done = False
@@ -87,6 +89,8 @@ for t_eps in range(1, num_episode+1):
 
             done = dones.all()
             idx += 1
+            
+            env.render()
 
     print('finish_batch')
 
