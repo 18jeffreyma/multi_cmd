@@ -6,7 +6,7 @@ from multi_cmd.optim import cmd_utils, potentials
 from utils import critic_update, get_advantage
 
 # TODO(jjma): Casework for this?
-DEFAULT_DTYPE = torch.float64
+DEFAULT_DTYPE = torch.float32
 torch.set_default_dtype(DEFAULT_DTYPE)
 
 # TODO(jjma): Refine this class structure based on feedback.
@@ -21,7 +21,8 @@ class MultiCoPG:
         self_play=False,
         potential=potentials.squared_distance(1),
         critic_lr=1e-3,
-        device=torch.device('cpu')
+        device=torch.device('cpu'),
+        dtype=DEFAULT_DTYPE
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -39,10 +40,17 @@ class MultiCoPG:
         self.policies = policies
         self.critics = critics
         self.self_play = self_play
+        
+        # Sampling parameters.
+        self.batch_size = batch_size
+
+        # Device to be used.
+        self.device = device
+        self.dtype = dtype
 
         # Optimizers for policies and critics.
         self.policy_optim = cmd_utils.CMD_RL(
-            [p.parameters() for p in self.policies], bregman=potential
+            [p.parameters() for p in self.policies], bregman=potential, device=self.device
         )
 
         # TODO(jjma): Implement self play in a cleaner way.
@@ -55,14 +63,7 @@ class MultiCoPG:
             self.critic_optim = [
                 torch.optim.Adam(c.parameters(), lr=critic_lr) for c in self.critics
             ]
-
-
-        # Sampling parameters.
-        self.batch_size = batch_size
-
-        # Device to be used.
-        self.device = device
-
+            
 
     def sample(self, verbose=False):
         """
@@ -91,8 +92,8 @@ class MultiCoPG:
                 # sample, then collect back to CPU.
                 actions = []
                 for i, p in enumerate(self.policies):
-                    obs_gpu = torch.tensor([obs[i]], device=self.device)
-                    action = p(obs_gpu).sample().numpy()
+                    obs_gpu = torch.tensor([obs[i]], device=self.device, dtype=self.dtype)
+                    action = p(obs_gpu).sample().cpu().numpy()
                     actions.append(action)
 
                 # Advance environment one step forwards.
@@ -112,19 +113,21 @@ class MultiCoPG:
             print('sample took:', time.time() - batch_start_time)
 
         # Create data on GPU for later update step.
-        mat_states = torch.tensor(mat_states_t, device=self.device).transpose(0, 1)
-        mat_actions = torch.tensor(mat_actions_t, device=self.device).transpose(0, 1)
-        mat_rewards = torch.tensor(mat_rewards_t, device=self.device).transpose(0, 1)
-        mat_done = torch.tensor(mat_done_t, dtype=torch.float, device=self.device).transpose(0, 1)
+        mat_states = torch.tensor(mat_states_t, dtype=self.dtype, device=self.device).transpose(0, 1)
+        mat_actions = torch.tensor(mat_actions_t, dtype=self.dtype, device=self.device).transpose(0, 1)
+        mat_rewards = torch.tensor(mat_rewards_t, dtype=self.dtype, device=self.device).transpose(0, 1)
+        mat_done = torch.tensor(mat_done_t, dtype=self.dtype, device=self.device).transpose(0, 1)
 
         return mat_states, mat_actions, mat_rewards, mat_done
 
 
-    def step(self, mat_states, mat_actions, mat_rewards, mat_done):
+    def step(self, mat_states, mat_actions, mat_rewards, mat_done, verbose=False):
         """
         Compute update step for policies and critics.
         """
-
+        
+        step_start_time = time.time()
+        
         # Use critic function to get advantage.
         values, returns, advantages = [], [], []
 
@@ -143,6 +146,8 @@ class MultiCoPG:
             returns.append(ret)
             advantages.append(advantage)
 
+        print('advantage calculated')   
+        
         # Use sampled values to fit critic model.
         if self.self_play:
             # TODO(jjma): Currently only supports all symetric players.
@@ -160,11 +165,15 @@ class MultiCoPG:
             lp = p(mat_states[i]).log_prob(torch.squeeze(mat_actions[i]))
             log_probs.append(lp)
 
+        print('log probs calculated')   
+            
         # Get gradient objective, which is log probabilty times advantage.
-        gradient_losses = torch.zeros(len(self.policies))
+        gradient_losses = torch.zeros(len(self.policies), device=self.device)
         for i, (lp, adv) in enumerate(zip(log_probs, advantages)):
             gradient_losses[i] = (-(lp * adv).mean())
 
+        print('gradient losses calculated')
+            
         # Compute summed log probabilities for hessian objectives.
         s_log_probs = [torch.zeros_like(lp) for lp in log_probs]
         for lp, slp, mask in zip(log_probs, s_log_probs, mat_done):
@@ -174,11 +183,10 @@ class MultiCoPG:
                 else:
                     slp[i] = torch.add(slp[i-1], lp[i-1]) * mask[i-1]
 
-        print(log_probs[0].shape)
-        print(s_log_probs[0].shape)
-
+        print('summed log probs calculated')  
+                    
         # Compute hessian objectives.
-        hessian_losses = torch.zeros(len(self.policies))
+        hessian_losses = torch.zeros(len(self.policies), device=self.device)
         for i in range(len(log_probs)):
             for j in range(len(log_probs)):
                 if (i != j):
@@ -189,37 +197,47 @@ class MultiCoPG:
 
                     term2 = log_probs[i][1:] * s_log_probs[j][1:] * advantages[i][1:]
                     hessian_losses[i] -= term2.sum() / (term2.size(0) - self.batch_size + 1)
-
+            
+        print('hessian losses calculated')  
+            
         # Update the policy parameters.
         self.policy_optim.zero_grad()
         self.policy_optim.step(gradient_losses, hessian_losses, cgd=True)
-
+        
+        # Print sampling time for debugging purposes.
+        if verbose:
+            print('step took:', time.time() - step_start_time)
 
 
 if __name__ == '__main__':
+    torch.backends.cudnn.benchmark = True
+    
     # Import game utilities from marlenv package.
     import gym, envs, sys
     from network import policy, critic
 
     # Initialize game environment.
     env = gym.make('python_4p-v1')
-    device = torch.device('cpu')
+    device = torch.device('cuda:1')
+    dtype = torch.float32
 
-    # p1 = policy().cuda(device=device)
-    p1 = policy()
+    p1 = policy().to(device).type(dtype)
+    # p1 = policy()
     policies = [p1 for _ in range(4)]
-    # q = critic().cuda(device=device)
-    q = critic()
+    q = critic().to(device).type(dtype)
+    # q = critic()
 
+   
     train_wrap = MultiCoPG(
         env,
         policies,
         [q],
-        batch_size=2,
+        batch_size=1,
         self_play=True,
         potential=potentials.squared_distance(1000),
         critic_lr=1e-3,
         device=device
     )
     states, actions, rewards, done = train_wrap.sample(verbose=True)
+ 
     train_wrap.step(states, actions, rewards, done)

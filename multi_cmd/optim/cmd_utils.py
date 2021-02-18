@@ -59,10 +59,9 @@ def avp(
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
     prod_list = [torch.zeros_like(v, device=device) for v in vector_list_flattened]
-
+    
     for i, row_params in enumerate(player_list):
         for j, (col_params, vector_elem) in enumerate(zip(player_list, vector_list_flattened)):
-
             if i == j:
                 # Diagonal element is the Bregman term.
                 prod_list[i] += bregman['Dxx_vp'](player_list_flattened[i], vector_elem)
@@ -74,16 +73,16 @@ def avp(
             
             loss = hessian_loss_list[i] if not transpose else hessian_loss_list[j]
 
-            if verbose:
-                start_time = time.time()
+#             if verbose:
+#                 start_time = time.time()
 
             grad_raw = autograd.grad(loss, col_params,
                                      create_graph=True,
                                      retain_graph=True,
                                      allow_unused=True)
             
-            if verbose:
-                print("Grad took:", time.time() - start_time)
+#             if verbose:
+#                 print("Grad took:", time.time() - start_time)
                 
             grad_flattened = flatten_filter_none(grad_raw, col_params,
                                                  device=device)
@@ -446,7 +445,7 @@ class CMD_RL(CMD):
         player_list_flattened = [flatten_filter_none(player, player,
                                                      detach=True, device=self.device)
                                  for player in player_list]
-
+        
         # Compute dual solution first, before mapping back to primal.
         # Use dual solution as initial guess for numerical speed.
         nash_list_flattened, n_iter, res = metamatrix_conjugate_gradient(
