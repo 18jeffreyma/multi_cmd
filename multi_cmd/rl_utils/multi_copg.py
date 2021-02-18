@@ -1,25 +1,26 @@
 
+import time
 import numpy as np
 import torch
-from multi_cmd import optim, potentials
+from multi_cmd.optim import cmd_utils, potentials
 from utils import critic_update, get_advantage
-
 
 # TODO(jjma): Casework for this?
 DEFAULT_DTYPE = torch.float64
 torch.set_default_dtype(DEFAULT_DTYPE)
 
-
 # TODO(jjma): Refine this class structure based on feedback.
 class MultiCoPG:
     # TODO(jjma): Horizon, gamma tuning?
     def __init__(
+        self,
         env,
         policies,
         critics,
         batch_size=32,
         self_play=False,
         potential=potentials.squared_distance(1),
+        critic_lr=1e-3,
         device=torch.device('cpu')
     ):
         """
@@ -40,12 +41,21 @@ class MultiCoPG:
         self.self_play = self_play
 
         # Optimizers for policies and critics.
-        self.policy_optim = multi_cmd.CMD_RL(
+        self.policy_optim = cmd_utils.CMD_RL(
             [p.parameters() for p in self.policies], bregman=potential
         )
-        self.critic_optim = [
-            torch.optim.Adam(c.parameters(), lr=1e-3) for c in self.critics
-        ]
+
+        # TODO(jjma): Implement self play in a cleaner way.
+        if self.self_play:
+            assert(len(self.critics) == 1)
+            self.critic_optim = [
+                torch.optim.Adam(self.critics[0].parameters(), lr=critic_lr)
+            ]
+        else:
+            self.critic_optim = [
+                torch.optim.Adam(c.parameters(), lr=critic_lr) for c in self.critics
+            ]
+
 
         # Sampling parameters.
         self.batch_size = batch_size
@@ -110,16 +120,24 @@ class MultiCoPG:
         return mat_states, mat_actions, mat_rewards, mat_done
 
 
-    def step(mat_states, mat_actions, mat_rewards, mat_done):
+    def step(self, mat_states, mat_actions, mat_rewards, mat_done):
         """
         Compute update step for policies and critics.
         """
+
         # Use critic function to get advantage.
         values, returns, advantages = [], [], []
-        for i, q in enumerate(self.critics):
+
+        # TODO(jjma): Fix this when making self-play more robust.
+        critics = self.critics
+        if self.self_play:
+            critics = [self.critics[0] for _ in range(len(self.policies))]
+
+        for i, q in enumerate(critics):
             val = q(mat_states[i]).detach()
             ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device)
-            advantage = returns - val
+
+            advantage = ret - val
 
             values.append(val)
             returns.append(ret)
@@ -139,13 +157,13 @@ class MultiCoPG:
         log_probs = []
         for i, p in enumerate(self.policies):
             # Our training wrapper assumes that the policy returns a distribution.
-            lp = p(mat_states[i]).log_prob(mat_actions[i])
+            lp = p(mat_states[i]).log_prob(torch.squeeze(mat_actions[i]))
             log_probs.append(lp)
 
         # Get gradient objective, which is log probabilty times advantage.
-        gradient_losses = []
-        for lp, adv in zip(log_probs, advantages):
-            gradient_losses.append(-(lp * adv).mean())
+        gradient_losses = torch.zeros(len(self.policies))
+        for i, (lp, adv) in enumerate(zip(log_probs, advantages)):
+            gradient_losses[i] = (-(lp * adv).mean())
 
         # Compute summed log probabilities for hessian objectives.
         s_log_probs = [torch.zeros_like(lp) for lp in log_probs]
@@ -154,23 +172,23 @@ class MultiCoPG:
                 if i == 0:
                     slp[0] = 0.
                 else:
-                    slp[i] = torch.add(slp[i-1], lp[i-1]) * mat_done[i-1]
+                    slp[i] = torch.add(slp[i-1], lp[i-1]) * mask[i-1]
+
+        print(log_probs[0].shape)
+        print(s_log_probs[0].shape)
 
         # Compute hessian objectives.
-        hessian_losses = []
+        hessian_losses = torch.zeros(len(self.policies))
         for i in range(len(log_probs)):
-            accum = 0.
-            for j in range(len(log_probs))
+            for j in range(len(log_probs)):
                 if (i != j):
-                    accum -= (log_probs[i] * log_probs[j] * advantages[i]).mean()
+                    hessian_losses[i] -= (log_probs[i] * log_probs[j] * advantages[i]).mean()
 
                     term1 = s_log_probs[i][1:] * log_probs[j][1:] * advantages[i][1:]
-                    accum -= term1.sum() / (term1.size(0) - self.batch_size + 1)
+                    hessian_losses[i] -= term1.sum() / (term1.size(0) - self.batch_size + 1)
 
                     term2 = log_probs[i][1:] * s_log_probs[j][1:] * advantages[i][1:]
-                    accum -= term2.sum() / (term2.size(0) - self.batch_size + 1)
-
-            hessian_losses.append(accum)
+                    hessian_losses[i] -= term2.sum() / (term2.size(0) - self.batch_size + 1)
 
         # Update the policy parameters.
         self.policy_optim.zero_grad()
@@ -180,4 +198,28 @@ class MultiCoPG:
 
 if __name__ == '__main__':
     # Import game utilities from marlenv package.
-    import gym, envs
+    import gym, envs, sys
+    from network import policy, critic
+
+    # Initialize game environment.
+    env = gym.make('python_4p-v1')
+    device = torch.device('cpu')
+
+    # p1 = policy().cuda(device=device)
+    p1 = policy()
+    policies = [p1 for _ in range(4)]
+    # q = critic().cuda(device=device)
+    q = critic()
+
+    train_wrap = MultiCoPG(
+        env,
+        policies,
+        [q],
+        batch_size=2,
+        self_play=True,
+        potential=potentials.squared_distance(1000),
+        critic_lr=1e-3,
+        device=device
+    )
+    states, actions, rewards, done = train_wrap.sample(verbose=True)
+    train_wrap.step(states, actions, rewards, done)

@@ -1,8 +1,8 @@
 import torch
 
 def critic_update(state_mat, return_mat, q, optim_q):
-    val_loc = q(state_mb)
-    critic_loss = (return_mat - state_mat).pow(2).mean()
+    val_loc = q(state_mat)
+    critic_loss = (return_mat - val_loc).pow(2).mean()
 
     optim_q.zero_grad()
     critic_loss.backward()
@@ -13,7 +13,8 @@ def get_advantage(
     next_value, reward_mat, value_mat, masks,
     gamma=0.99, tau=0.95, device=torch.device('cpu')
 ):
-    value_mat = torch.cat([value_mat, torch.tensor([[next_value]], device=device)])
+    insert_tensor = torch.tensor([[float(next_value)]], device=device)
+    value_mat = torch.cat([value_mat, insert_tensor])
     gae = 0
     returns = []
 
@@ -24,4 +25,4 @@ def get_advantage(
 
     # Reverse ordering.
     returns.reverse()
-    return torch.cat(returns)
+    return torch.cat(returns).reshape(-1, 1)
