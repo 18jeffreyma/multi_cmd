@@ -125,8 +125,8 @@ class MultiCoPG:
         """
         Compute update step for policies and critics.
         """
-        
-        step_start_time = time.time()
+#         if verbose:
+#             step_start_time = time.time()
         
         # Use critic function to get advantage.
         values, returns, advantages = [], [], []
@@ -146,7 +146,7 @@ class MultiCoPG:
             returns.append(ret)
             advantages.append(advantage)
 
-        print('advantage calculated')   
+#         print('advantage calculated')   
         
         # Use sampled values to fit critic model.
         if self.self_play:
@@ -165,14 +165,14 @@ class MultiCoPG:
             lp = p(mat_states[i]).log_prob(torch.squeeze(mat_actions[i]))
             log_probs.append(lp)
 
-        print('log probs calculated')   
+#         print('log probs calculated')   
             
         # Get gradient objective, which is log probabilty times advantage.
         gradient_losses = torch.zeros(len(self.policies), device=self.device)
         for i, (lp, adv) in enumerate(zip(log_probs, advantages)):
             gradient_losses[i] = (-(lp * adv).mean())
 
-        print('gradient losses calculated')
+#         print('gradient losses calculated')
             
         # Compute summed log probabilities for hessian objectives.
         s_log_probs = [torch.zeros_like(lp) for lp in log_probs]
@@ -183,7 +183,7 @@ class MultiCoPG:
                 else:
                     slp[i] = torch.add(slp[i-1], lp[i-1]) * mask[i-1]
 
-        print('summed log probs calculated')  
+#         print('summed log probs calculated')  
                     
         # Compute hessian objectives.
         hessian_losses = torch.zeros(len(self.policies), device=self.device)
@@ -198,15 +198,34 @@ class MultiCoPG:
                     term2 = log_probs[i][1:] * s_log_probs[j][1:] * advantages[i][1:]
                     hessian_losses[i] -= term2.sum() / (term2.size(0) - self.batch_size + 1)
             
-        print('hessian losses calculated')  
+#         print('hessian losses calculated')  
             
         # Update the policy parameters.
+        # TODO(jjma): Update 
         self.policy_optim.zero_grad()
-        self.policy_optim.step(gradient_losses, hessian_losses, cgd=True)
         
-        # Print sampling time for debugging purposes.
-        if verbose:
-            print('step took:', time.time() - step_start_time)
+        torch.cuda.synchronize()
+        start = time.time()
+       
+        grad = torch.autograd.grad(gradient_losses[0], self.policies[0].parameters(), retain_graph=True)
+    
+        torch.cuda.synchronize()
+        print('grad_time:', time.time() - start)     
+        
+        torch.cuda.synchronize()
+        start = time.time()
+       
+        grad = torch.autograd.grad(hessian_losses[0], self.policies[0].parameters(), retain_graph=True)
+    
+        torch.cuda.synchronize()
+        print('hessian_grad_time:', time.time() - start) 
+        
+        
+#         self.policy_optim.step(gradient_losses, hessian_losses, cgd=True)
+        
+#         # Print sampling time for debugging purposes.
+#         if verbose:
+#             print('step took:', time.time() - step_start_time)
 
 
 if __name__ == '__main__':
@@ -218,7 +237,9 @@ if __name__ == '__main__':
 
     # Initialize game environment.
     env = gym.make('python_4p-v1')
-    device = torch.device('cuda:1')
+    device = torch.device('cuda:0')
+    device = torch.device('cpu')
+    print('device:', device)
     dtype = torch.float32
 
     p1 = policy().to(device).type(dtype)
@@ -232,7 +253,7 @@ if __name__ == '__main__':
         env,
         policies,
         [q],
-        batch_size=1,
+        batch_size=64,
         self_play=True,
         potential=potentials.squared_distance(1000),
         critic_lr=1e-3,
@@ -241,3 +262,6 @@ if __name__ == '__main__':
     states, actions, rewards, done = train_wrap.sample(verbose=True)
  
     train_wrap.step(states, actions, rewards, done)
+    
+    
+    
