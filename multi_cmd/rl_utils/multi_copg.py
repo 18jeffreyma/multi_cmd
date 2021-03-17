@@ -342,10 +342,10 @@ if __name__ == '__main__':
 
     # Initialize game environment.
     env = gym.make('python_4p-v1')
-    device = torch.device('cuda:0')
+    device = torch.device('cuda:1')
 #     device = torch.device('cpu') # To use CPU.
     batch_size = 8
-    n_steps = 10000
+    n_steps = 50000
     verbose = False
     
     print('device:', device)
@@ -367,7 +367,7 @@ if __name__ == '__main__':
         [q],
         batch_size=batch_size,
         self_play=True,
-        potential=potentials.squared_distance(1000),
+        potential=potentials.squared_distance(1/0.005),
         critic_lr=1e-3,
         device=device
     )
@@ -377,7 +377,7 @@ if __name__ == '__main__':
         states, actions, action_mask, rewards, done = train_wrap.sample(verbose=verbose)
         train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)
         
-        if (t_eps % 1000) == 0:
+        if ((t_eps + 1) % 1000) == 0:
             print('saving model:', t_eps)
             torch.save(p1.state_dict(), 'model_checkpoints/actor1_' + str(t_eps) + '.pth')
             torch.save(q.state_dict(), 'model_checkpoints/critic1_' + str(t_eps) + '.pth')

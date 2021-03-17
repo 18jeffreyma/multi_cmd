@@ -72,17 +72,10 @@ def avp(
             # subsequent Hessians any more.
             
             loss = hessian_loss_list[i] if not transpose else hessian_loss_list[j]
-
-#             if verbose:
-#                 start_time = time.time()
-
             grad_raw = autograd.grad(loss, col_params,
                                      create_graph=True,
                                      retain_graph=True,
                                      allow_unused=True)
-            
-#             if verbose:
-#                 print("Grad took:", time.time() - start_time)
                 
             grad_flattened = flatten_filter_none(grad_raw, col_params,
                                                  device=device)
@@ -224,7 +217,7 @@ def metamatrix_conjugate_gradient(
             bregman=bregman, transpose=True, device=device)
 
     # Set relative residual threshold based on norm of b.
-    norm_At_b = sum(torch.dot(r_elem, r_elem) for r_elem in r)
+    norm_At_b = sum(torch.dot(r_elem, r_elem).item() for r_elem in r)
     residual_tol = tol * norm_At_b
 
     # If no guess provided, start from zero vector.
@@ -303,7 +296,8 @@ def metamatrix_conjugate_gradient(
 
             rdotr = new_rdotr
             rdotz = new_rdotz
-
+            
+            
     return vector_list_flattened, i+1, rdotr
 
 
