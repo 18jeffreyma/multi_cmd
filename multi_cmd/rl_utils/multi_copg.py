@@ -1,4 +1,5 @@
 
+import os
 import copy
 import time
 import numpy as np
@@ -340,11 +341,21 @@ if __name__ == '__main__':
     import gym, envs, sys
     from network import policy, critic
 
+    from torch.utils.tensorboard import SummaryWriter
+    
+    model_location = 'model_checkpoints/'
+    folder_location = 'tensorboard/'
+    if not os.path.exists(folder_location):
+        os.makedirs(model_location)
+        os.makedirs(folder_location)
+        
+    writer = SummaryWriter(folder_location)
+    
     # Initialize game environment.
     env = gym.make('python_4p-v1')
-    device = torch.device('cuda:1')
+    device = torch.device('cuda:2')
 #     device = torch.device('cpu') # To use CPU.
-    batch_size = 8
+    batch_size = 10
     n_steps = 50000
     verbose = False
     
@@ -373,14 +384,39 @@ if __name__ == '__main__':
     )
     
     for t_eps in range(n_steps):
-        print('t_eps:', t_eps)
         states, actions, action_mask, rewards, done = train_wrap.sample(verbose=verbose)
         train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)
         
-        if ((t_eps + 1) % 1000) == 0:
+        if ((t_eps + 1) % 20) == 0:
+            print('t_eps:', t_eps)
+            
+            disc_avg_reward = []
+            for i in range(4):
+                total_sum = 0.
+                cumsum = 0.
+                for j in range(len(rewards[i])):
+                    cumsum *= 0.99
+                    cumsum += rewards[i][j].cpu().item()
+
+                    if (done[i][j] == 0):
+                        total_sum += cumsum
+                        cumsum = 0
+
+                disc_avg_reward.append(total_sum/batch_size)
+                   
+            writer.add_scalar('agent1/disc_avg_reward', disc_avg_reward[0], t_eps)
+            writer.add_scalar('agent2/disc_avg_reward', disc_avg_reward[1], t_eps)
+            writer.add_scalar('agent3/disc_avg_reward', disc_avg_reward[2], t_eps)
+            writer.add_scalar('agent4/disc_avg_reward', disc_avg_reward[3], t_eps)
+            writer.add_scalar('game/avg_max_trajectory length', len(done[0]) / batch_size, t_eps)
+
+        
+        if ((t_eps + 1) % 100) == 0:
             print('saving model:', t_eps)
-            torch.save(p1.state_dict(), 'model_checkpoints/actor1_' + str(t_eps) + '.pth')
-            torch.save(q.state_dict(), 'model_checkpoints/critic1_' + str(t_eps) + '.pth')
+            
+            
+            torch.save(p1.state_dict(), 'model_checkpoints/actor1_' + str(t_eps+1) + '.pth')
+            torch.save(q.state_dict(), 'model_checkpoints/critic1_' + str(t_eps+1) + '.pth')
                
     
     

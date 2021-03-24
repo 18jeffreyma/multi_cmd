@@ -1,4 +1,6 @@
 
+# NOTE: My branch of marlenv has action spaced changed to 3 and has changed player observations to be symmetrical.
+
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
@@ -18,7 +20,7 @@ class policy(nn.Module):
                                    nn.ReLU(),
                                    nn.Linear(64, 64),
                                    nn.ReLU(),
-                                   nn.Linear(64, 5),
+                                   nn.Linear(64, 3),
                                    nn.Softmax(dim=-1))
 
     def forward(self, state):
