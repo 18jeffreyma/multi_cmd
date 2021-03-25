@@ -1,174 +1,105 @@
-# PyTorch imports.
+# Normal Python Imports:
+import os, sys
+
+# Import PyTorch and training wrapper for Multi CoPG.
 import torch
-from torch.utils.tensorboard import SummaryWriter
-from torch.distributions import Categorical
+from multi_cmd.optim import potentials
+from multi_cmd.rl_utils import MultiCoPG
+torch.backends.cudnn.benchmark = True
 
-device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
-
-# Additional imports.
-import numpy as np
-import sys, os, time
-import itertools
-
-# Import game utilities
-from network import policy, critic
-from multi_cmd.rl_utils.critic_functions import critic_update, get_advantage
-
-# Import multiplayer CMD RL optimizer.
-# from copg_optim import CoPG
-from multi_cmd.optim import cmd_utils, potentials
-
-# Import game utilities from marlenv package.
+# Import game environment (snake env is called "envs").
 import gym, envs
 
-# Set up directory for results and SummaryWriter.
-folder_location = 'tensorboard/'
-experiment_name = 'copg/'
-directory = folder_location + experiment_name + 'model'
-if not os.path.exists(directory):
-    os.makedirs(directory)
-writer = SummaryWriter(folder_location + experiment_name + 'data')
+# Import policy and critic network.
+from network import policy, critic
 
-# Initialize policy for both agents for matching pennies.
+# Import log utilities.
+from torch.utils.tensorboard import SummaryWriter
 
-p1 = policy()
-policy_list = [p1 for _ in range(4)]
-q = critic()
+
+# Training settings (CHECK THESE BEFORE RUNNING).
+device = torch.device('cuda:2')
+# device = torch.device('cpu') # Uncomment to use CPU.
+batch_size = 10
+n_steps = 50000
+verbose = False
+run_id = "try1"
+
+
+# Create log directories and specify Tensorboard writer.
+writer = SummaryWriter(folder_location)
+model_location = 'model'
+run_location = os.path.join(model_location, run_id)
+logs_location = os.path.join(run_location, 'tensorboard')
+if not os.path.exists(folder_location):
+    os.makedirs(run_location)
+    os.makedirs(logs_location)
 
 # Initialize game environment.
 env = gym.make('python_4p-v1')
+dtype = torch.float32
 
-# Initialize optimizer (changed this to new optimizer). Alpha is inverse of learning rate.
-optim = cmd_utils.CMD_RL([p.parameters() for p in policy_list],
-                          bregman=potentials.squared_distance(100))
-optim_q = torch.optim.Adam(q.parameters(), lr=1e-2)
+# Specify episode number to use as last checkpoint (for loading model).
+last_teps = None # 2100
+last_run_id = None
 
-# Game parameters...
-num_players = 4
-num_episode = 1000
-batch_size = 20
-horizon_length = 25
+# Instantiate a policy and critic; we will use self play and a symmetric critic for this game.
+p1 = policy().to(device).type(dtype)
+if last_teps and last_run_id:
+    actor_path = os.path.join(run_location, 'actor1_' + str(last_teps) + '.pth')
+    p1.load_state_dict(torch.load(actor_path))
+policies = [p1 for _ in range(4)]
 
+q = critic().to(device).type(dtype)
+if last_teps and last_run_id:
+    critic_path = os.path.join(run_location, 'critic1_' + str(last_teps) + '.pth')
+    q.load_state_dict(torch.load(critic_path))
 
-for t_eps in range(1, num_episode+1):
-    print('t_eps:', t_eps)
-    mat_states_t = []
-    mat_actions_t = []
-    mat_rewards_t = []
-    mat_done_t = []
+# Define training environment with env provided.
+train_wrap = MultiCoPG(
+    env,
+    policies,
+    [q],
+    batch_size=batch_size,
+    self_play=True,
+    potential=potentials.squared_distance(1/0.005),
+    critic_lr=1e-3,
+    device=device
+)
 
-    for j in range(batch_size):
-        print(j)
-        # Reset environment for each trajectory in batch.
-        obs = env.reset()
-        done = False
+print('device:', device)
+print('batch_size:', batch_size)
+print('n_steps:', n_steps)
 
-        # TODO(jjma): Longer trajectory to use for game?
-        idx = 0
-        while (not done):
-            # Record state...
-            mat_states_t.append(obs)
+for t_eps in range(last_teps, n_steps):
+    # Sample and compute update.
+    states, actions, action_mask, rewards, done = train_wrap.sample(verbose=verbose)
+    train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)
 
-            # Sample actions from player policies and record...
-            actions = torch.cat([
-                Categorical(
-                    p(torch.stack([torch.FloatTensor(obs[i])]))
-                ).sample()
-                for i, p in enumerate(policy_list)
-            ])
-            mat_actions_t.append(actions)
+    if ((t_eps + 1) % 20) == 0:
+        print("logging progress:", t_eps + 1)
 
-            obs, rewards, dones, _ = env.step(actions)
+        # Calculating discounted average reward for current sample.
+        disc_avg_reward = []
+        for i in range(4):
+            total_sum = 0.
+            cumsum = 0.
+            for j in range(len(rewards[i])):
+                cumsum *= 0.99
+                cumsum += rewards[i][j].cpu().item()
+                if (done[i][j] == 0):
+                    total_sum += cumsum
+                    cumsum = 0
+            disc_avg_reward.append(total_sum/batch_size)
 
-            if (idx == horizon_length - 1):
-                dones = np.array([True] * 4)
+        # Log values to Tensorboard.
+        writer.add_scalar('agent1/disc_avg_reward', disc_avg_reward[0], t_eps)
+        writer.add_scalar('agent2/disc_avg_reward', disc_avg_reward[1], t_eps)
+        writer.add_scalar('agent3/disc_avg_reward', disc_avg_reward[2], t_eps)
+        writer.add_scalar('agent4/disc_avg_reward', disc_avg_reward[3], t_eps)
+        writer.add_scalar('game/avg_max_trajectory length', len(done[0]) / batch_size, t_eps)
 
-            # Record done for calculating advantage later...
-            mat_done_t.append(1 - dones)
-            mat_rewards_t.append(rewards)
-
-            done = dones.all()
-            idx += 1
-            
-            env.render()
-
-    print('finish_batch')
-
-    mat_states_t = torch.Tensor(mat_states_t)
-    mat_rewards_t = torch.Tensor(mat_rewards_t)
-    mat_done_t = torch.Tensor(mat_done_t)
-    mat_actions_t = torch.stack(mat_actions_t)
-
-    mat_states = mat_states_t.transpose(0, 1)
-    mat_actions = mat_actions_t.transpose(0, 1)
-    mat_rewards = mat_rewards_t.transpose(0, 1)
-
-    # Log average reward per trajectory per policy...
-    avg_reward_per_traj = torch.sum(mat_rewards, 1) / batch_size
-    for i in range(num_players):
-        writer.add_scalar('Agent' + str(i) +  '/AvgRewardPerTrajectory',
-                          avg_reward_per_traj[i], t_eps)
-
-    # Sample from critic predictiong value function.
-    q_outputs = [q(mat_states[i]) for i in range(num_players)]
-
-    returns = [
-        torch.cat(get_advantage(0, mat_rewards_t[:, i:i+1], q_output, mat_done_t[:, i:i+1] ))
-        for i, q_output in enumerate(q_outputs)
-    ]
-
-    mat_advantages = [ret - q_output.transpose(0,1)[0]
-                      for ret, q_output in zip(returns, q_outputs)]
-
-    for loss_critic, gradient_norm in critic_update(
-            torch.cat(mat_states_t.transpose(0, 1).unbind()),
-            torch.cat(returns), q, optim_q
-        ):
-        writer.add_scalar('Loss/critic', loss_critic, t_eps)
-
-    log_probs = [
-        Categorical(
-            p(state_list)
-        ).log_prob(action_list)
-        for state_list, action_list, p in zip(mat_states, mat_actions, policy_list)
-    ]
-
-    s_log_probs = [elem.clone() for elem in log_probs]
-
-    for j in range(num_players):
-        for i in range(len(log_probs[j])):
-            if i == 0 or mat_done_t[i-1][j] == 0:
-                s_log_probs[j][i] = 0
-            else:
-                s_log_probs[j][i] = torch.add(s_log_probs[j][i-1], log_probs[j][i-1])
-
-    hessian_losses = [0.] * num_players
-    for i in range(num_players):
-        for j in range(num_players):
-            if (i != j):
-                hessian_losses[i] += -(log_probs[i] * log_probs[j] * mat_advantages[i]).mean()
-                hessian_losses[i] += -(s_log_probs[i] * log_probs[j] * mat_advantages[i]).mean()
-                hessian_losses[i] += -(log_probs[i] * s_log_probs[j] * mat_advantages[i]).mean()
-
-    gradient_losses = [-(log_probs[i] * mat_advantages[i]).mean() for i in range(num_players)]
-
-    print('finish_traj')
-
-    optim.zero_grad()
-
-    # Negative objectives, since optimizer minimizes by default.
-    optim.step(gradient_losses, hessian_losses, cgd=True)
-
-    print('conj gradient iter:', optim.state_dict()['last_dual_soln_n_iter'])
-    print('conj gradient residual:', optim.state_dict()['last_dual_residual'])
-
-
-    print('finish_optim')
-
-    if t_eps%10==0:
-        print('checkpoint (t_eps):', t_eps)
-
-        for i in range(num_players):
-            torch.save(policy_list[i].state_dict(),
-                       folder_location + experiment_name + 'model/agent' + str(i) + '_' + str(
-                           t_eps) + ".pth")
+    if ((t_eps + 1) % 100) == 0:
+        print('saving checkpoint:', t_eps + 1)
+        torch.save(p1.state_dict(), 'model_checkpoints/actor1_' + str(t_eps + 1) + '.pth')
+        torch.save(q.state_dict(), 'model_checkpoints/critic1_' + str(t_eps + 1) + '.pth')

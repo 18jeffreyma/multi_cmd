@@ -1,30 +1,31 @@
 
+# NOTE: My branch of marlenv has action spaced changed to 3 and has changed player observations to be symmetrical.
+
 import torch
 import torch.nn as nn
-#
-# def init_weights(m):
-#     if isinstance(m, nn.Linear):
-#         nn.init.normal_(m.weight, mean=0., std=0.1)
-#         nn.init.constant_(m.bias, 0.1)
-
+from torch.distributions import Categorical
 
 class policy(nn.Module):
     """General policy model for calculating action policy from state."""
     def __init__(self):
         super(policy, self).__init__()
-        self.actor = nn.Sequential(nn.Conv2d(4, 16, 3),
-                                   nn.Tanh(),
-                                   nn.Conv2d(16, 32, 3),
-                                   nn.Tanh(),
+        self.actor = nn.Sequential(nn.Conv2d(4, 32, 2),
+                                   nn.ReLU(),
+                                   nn.Conv2d(32, 32, 2),
+                                   nn.ReLU(),
                                    nn.Flatten(),
-                                   nn.Linear(8192, 256),
-                                   nn.Tanh(),
-                                   nn.Linear(256, 5),
+                                   nn.Linear(10368, 512),
+                                   nn.ReLU(),
+                                   nn.Linear(512, 64),
+                                   nn.ReLU(),
+                                   nn.Linear(64, 64),
+                                   nn.ReLU(),
+                                   nn.Linear(64, 3),
                                    nn.Softmax(dim=-1))
 
     def forward(self, state):
         mu = self.actor(state)
-        return mu
+        return Categorical(mu)
 
 
 class critic(nn.Module):
@@ -32,14 +33,19 @@ class critic(nn.Module):
     def __init__(self):
         super(critic, self).__init__()
 
-        self.critic = nn.Sequential(nn.Conv2d(4, 16, 3),
-                                   nn.Tanh(),
-                                   nn.Conv2d(16, 32, 3),
-                                   nn.Tanh(),
-                                   nn.Flatten(),
-                                   nn.Linear(8192, 256),
-                                   nn.Tanh(),
-                                   nn.Linear(256, 1))
+        self.critic = nn.Sequential(nn.Conv2d(4, 32, 2),
+                                    nn.ReLU(),
+                                    nn.Conv2d(32, 32, 2),
+                                    nn.ReLU(),
+                                    nn.Flatten(),
+                                    nn.Linear(10368, 512),
+                                    nn.ReLU(),
+                                    nn.Linear(512, 64),
+                                    nn.ReLU(),
+                                    nn.Linear(64, 64),
+                                    nn.ReLU(),
+                                    nn.Linear(64, 1),
+                                    nn.Softmax(dim=-1))
 
     def forward(self, state):
         value = self.critic(state)

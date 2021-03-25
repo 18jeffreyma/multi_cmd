@@ -6,12 +6,9 @@ import numpy as np
 import torch
 from multi_cmd.optim import cmd_utils, potentials
 
-torch.backends.cudnn.benchmark = True
-
 # TODO(jjma): Casework for this?
 DEFAULT_DTYPE = torch.float32
 torch.set_default_dtype(DEFAULT_DTYPE)
-
 
 def critic_update(state_mat, return_mat, q, optim_q):
     val_loc = q(state_mat)
@@ -334,89 +331,3 @@ class MultiCoPG:
         if verbose:
             torch.cuda.synchronize()
             print('step took:', time.time() - step_start_time)
-
-
-if __name__ == '__main__':
-    # Import game utilities from marlenv package.
-    import gym, envs, sys
-    from network import policy, critic
-
-    from torch.utils.tensorboard import SummaryWriter
-    
-    model_location = 'model_checkpoints/'
-    folder_location = 'tensorboard/'
-    if not os.path.exists(folder_location):
-        os.makedirs(model_location)
-        os.makedirs(folder_location)
-        
-    writer = SummaryWriter(folder_location)
-    
-    # Initialize game environment.
-    env = gym.make('python_4p-v1')
-    device = torch.device('cuda:2')
-#     device = torch.device('cpu') # To use CPU.
-    batch_size = 10
-    n_steps = 50000
-    verbose = False
-    
-    print('device:', device)
-    print('batch_size:', batch_size)
-    print('n_steps:', n_steps)
-   
-    dtype = torch.float32
-
-    p1 = policy().to(device).type(dtype)
-    # p1 = policy()
-    policies = [p1 for _ in range(4)]
-    q = critic().to(device).type(dtype)
-    # q = critic()
-
-    
-    train_wrap = MultiCoPG(
-        env,
-        policies,
-        [q],
-        batch_size=batch_size,
-        self_play=True,
-        potential=potentials.squared_distance(1/0.005),
-        critic_lr=1e-3,
-        device=device
-    )
-    
-    for t_eps in range(n_steps):
-        states, actions, action_mask, rewards, done = train_wrap.sample(verbose=verbose)
-        train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)
-        
-        if ((t_eps + 1) % 20) == 0:
-            print('t_eps:', t_eps)
-            
-            disc_avg_reward = []
-            for i in range(4):
-                total_sum = 0.
-                cumsum = 0.
-                for j in range(len(rewards[i])):
-                    cumsum *= 0.99
-                    cumsum += rewards[i][j].cpu().item()
-
-                    if (done[i][j] == 0):
-                        total_sum += cumsum
-                        cumsum = 0
-
-                disc_avg_reward.append(total_sum/batch_size)
-                   
-            writer.add_scalar('agent1/disc_avg_reward', disc_avg_reward[0], t_eps)
-            writer.add_scalar('agent2/disc_avg_reward', disc_avg_reward[1], t_eps)
-            writer.add_scalar('agent3/disc_avg_reward', disc_avg_reward[2], t_eps)
-            writer.add_scalar('agent4/disc_avg_reward', disc_avg_reward[3], t_eps)
-            writer.add_scalar('game/avg_max_trajectory length', len(done[0]) / batch_size, t_eps)
-
-        
-        if ((t_eps + 1) % 100) == 0:
-            print('saving model:', t_eps)
-            
-            
-            torch.save(p1.state_dict(), 'model_checkpoints/actor1_' + str(t_eps+1) + '.pth')
-            torch.save(q.state_dict(), 'model_checkpoints/critic1_' + str(t_eps+1) + '.pth')
-               
-    
-    
