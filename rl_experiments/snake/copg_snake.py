@@ -26,13 +26,10 @@ verbose = False
 run_id = "try2"
 
 # Create log directories and specify Tensorboard writer.
-writer = SummaryWriter(folder_location)
 model_location = 'model'
 run_location = os.path.join(model_location, run_id)
-logs_location = os.path.join(run_location, 'tensorboard')
-if not os.path.exists(folder_location):
+if not os.path.exists(run_location):
     os.makedirs(run_location)
-    os.makedirs(logs_location)
 
 # Initialize game environment.
 env = gym.make('python_4p-v1')
@@ -44,15 +41,20 @@ last_run_id = None
 
 # Instantiate a policy and critic; we will use self play and a symmetric critic for this game.
 p1 = policy().to(device).type(dtype)
-if last_teps and last_run_id:
-    actor_path = os.path.join(run_location, 'actor1_' + str(last_teps) + '.pth')
-    p1.load_state_dict(torch.load(actor_path))
-policies = [p1 for _ in range(4)]
-
 q = critic().to(device).type(dtype)
 if last_teps and last_run_id:
+    run_location = os.path.join(model_location, last_run_id)
+    actor_path = os.path.join(run_location, 'actor1_' + str(last_teps) + '.pth')
     critic_path = os.path.join(run_location, 'critic1_' + str(last_teps) + '.pth')
+    p1.load_state_dict(torch.load(actor_path))
     q.load_state_dict(torch.load(critic_path))
+policies = [p1 for _ in range(4)]
+
+# Tensorboard writer initialization.
+logs_location = os.path.join(run_location, 'tensorboard')
+if not os.path.exists(logs_location):
+    os.makedirs(logs_location)
+writer = SummaryWriter(logs_location)
 
 # Define training environment with env provided.
 train_wrap = MultiCoPG(
