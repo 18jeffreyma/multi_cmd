@@ -19,7 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 # Training settings (CHECK THESE BEFORE RUNNING).
 device = torch.device('cuda:1')
-device = torch.device('cpu') # Uncomment to use CPU.
+# device = torch.device('cpu') # Uncomment to use CPU.
 batch_size = 10
 n_steps = 30000
 verbose = False
