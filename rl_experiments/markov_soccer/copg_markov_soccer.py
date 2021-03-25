@@ -18,11 +18,11 @@ from torch.utils.tensorboard import SummaryWriter
 
 # Training settings (CHECK THESE BEFORE RUNNING).
 device = torch.device('cuda:1')
-device = torch.device('cpu') # Uncomment to use CPU.
+# device = torch.device('cpu') # Uncomment to use CPU.
 batch_size = 10
 n_steps = 30000
 run_id = "try1"
-verbose = False
+verbose = True
 
 # Create log directories and specify Tensorboard writer.
 model_location = 'model'
@@ -79,6 +79,7 @@ for t_eps in range(last_teps, n_steps):
     # Sample and compute update.
     states, actions, action_mask, rewards, done = train_wrap.sample(verbose=verbose)
     train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)
+    print("avg traj length", len(done[0])/batch_size)
 
     if ((t_eps + 1) % 20) == 0:
         print("logging progress:", t_eps + 1)

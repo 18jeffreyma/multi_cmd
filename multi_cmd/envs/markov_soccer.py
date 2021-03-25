@@ -4,7 +4,7 @@ import numpy as np
 import random
 import gym
 import pygame
-from . import graphics
+# from . import graphics
 
 # TODO(jjma): Look into turning this into OpenAI gym.
 # TODO(jjma): Make number of players/goal size tunable?

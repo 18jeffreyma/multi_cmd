@@ -4,7 +4,7 @@ import os, sys
 # Import PyTorch and training wrapper for Multi CoPG.
 import torch
 from multi_cmd.optim import potentials
-from multi_cmd.rl_utils import MultiCoPG
+from multi_cmd.rl_utils.multi_copg import MultiCoPG
 torch.backends.cudnn.benchmark = True
 
 # Import game environment (snake env is called "envs").
@@ -71,6 +71,9 @@ train_wrap = MultiCoPG(
 print('device:', device)
 print('batch_size:', batch_size)
 print('n_steps:', n_steps)
+
+if last_teps is None:
+    last_teps = 0
 
 for t_eps in range(last_teps, n_steps):
     # Sample and compute update.

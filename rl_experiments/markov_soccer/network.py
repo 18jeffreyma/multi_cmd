@@ -10,9 +10,9 @@ class policy(nn.Module):
     def __init__(self):
         super(policy, self).__init__()
         self.actor = nn.Sequential(nn.Linear(80, 64),  # 84*50
-                                   nn.Tanh(),
+                                   nn.ReLU(),
                                    nn.Linear(64, 32),  # 50*20
-                                   nn.Tanh(),
+                                   nn.ReLU(),
                                    nn.Linear(32, 5),
                                    nn.Softmax(dim=-1))
 
@@ -27,9 +27,9 @@ class critic(nn.Module):
         super(critic, self).__init__()
 
         self.critic = nn.Sequential(nn.Linear(80, 64),  # 84*50
-                                    nn.Tanh(),
+                                    nn.ReLU(),
                                     nn.Linear(64, 32),  # 50*20
-                                    nn.Tanh(),
+                                    nn.ReLU(),
                                     nn.Linear(32, 1))
 
     def forward(self, state):
