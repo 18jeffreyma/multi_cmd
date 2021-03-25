@@ -100,5 +100,7 @@ for t_eps in range(last_teps, n_steps):
 
     if ((t_eps + 1) % 100) == 0:
         print('saving checkpoint:', t_eps + 1)
-        torch.save(p1.state_dict(), 'model_checkpoints/actor1_' + str(t_eps + 1) + '.pth')
-        torch.save(q.state_dict(), 'model_checkpoints/critic1_' + str(t_eps + 1) + '.pth')
+        actor_path = os.path.join(run_location, 'actor1_' + str(t_eps + 1) + '.pth')
+        critic_path = os.path.join(run_location, 'critic1_' + str(t_eps + 1) + '.pth')
+        torch.save(p1.state_dict(), actor_path)
+        torch.save(q.state_dict(), critic_path)
