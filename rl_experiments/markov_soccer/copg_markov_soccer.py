@@ -4,11 +4,11 @@ import os, sys
 # Import PyTorch and training wrapper for Multi CoPG.
 import torch
 from multi_cmd.optim import potentials
-from multi_cmd.rl_utils import MultiCoPG
+from multi_cmd.rl_utils.multi_copg import MultiCoPG
 torch.backends.cudnn.benchmark = True
 
 # Import game environment (snake env is called "envs").
-import gym, envs
+from multi_cmd.envs.markov_soccer import MarkovSoccer
 
 # Import policy and critic network.
 from network import policy, critic
@@ -18,24 +18,25 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 # Training settings (CHECK THESE BEFORE RUNNING).
-device = torch.device('cuda:2')
-# device = torch.device('cpu') # Uncomment to use CPU.
+device = torch.device('cuda:1')
+device = torch.device('cpu') # Uncomment to use CPU.
 batch_size = 10
-n_steps = 50000
+n_steps = 30000
 verbose = False
-run_id = "try2"
+run_id = "try1"
+
 
 # Create log directories and specify Tensorboard writer.
-writer = SummaryWriter(folder_location)
 model_location = 'model'
 run_location = os.path.join(model_location, run_id)
 logs_location = os.path.join(run_location, 'tensorboard')
-if not os.path.exists(folder_location):
+if not os.path.exists(run_location):
     os.makedirs(run_location)
     os.makedirs(logs_location)
+writer = SummaryWriter(logs_location)
 
 # Initialize game environment.
-env = gym.make('python_4p-v1')
+env = MarkovSoccer()
 dtype = torch.float32
 
 # Specify episode number to use as last checkpoint (for loading model).
@@ -69,6 +70,9 @@ train_wrap = MultiCoPG(
 print('device:', device)
 print('batch_size:', batch_size)
 print('n_steps:', n_steps)
+
+if last_teps is None:
+    last_teps = 0
 
 for t_eps in range(last_teps, n_steps):
     # Sample and compute update.

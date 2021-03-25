@@ -44,8 +44,7 @@ class critic(nn.Module):
                                     nn.ReLU(),
                                     nn.Linear(64, 64),
                                     nn.ReLU(),
-                                    nn.Linear(64, 1),
-                                    nn.Softmax(dim=-1))
+                                    nn.Linear(64, 1))
 
     def forward(self, state):
         value = self.critic(state)

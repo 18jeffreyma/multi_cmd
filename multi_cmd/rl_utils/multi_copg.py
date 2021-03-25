@@ -12,14 +12,14 @@ torch.set_default_dtype(DEFAULT_DTYPE)
 
 def critic_update(state_mat, return_mat, q, optim_q):
     val_loc = q(state_mat)
-    
+
     critic_loss = (return_mat - val_loc).pow(2).mean()
 
     optim_q.zero_grad()
     critic_loss.backward()
     optim_q.step()
 
-    
+
 # TODO(jjma): Revisit this?
 def get_advantage(
     next_value, reward_mat, value_mat, masks,
@@ -37,7 +37,7 @@ def get_advantage(
 
     # Reverse ordering.
     returns.reverse()
-    
+
     vals = torch.cat(returns).reshape(-1, 1)
     return vals
 
@@ -74,7 +74,7 @@ class MultiCoPG:
         self.policies = policies
         self.critics = critics
         self.self_play = self_play
-        
+
         # Sampling parameters.
         self.batch_size = batch_size
 
@@ -84,8 +84,8 @@ class MultiCoPG:
 
         # Optimizers for policies and critics.
         self.policy_optim = cmd_utils.CMD_RL(
-            [p.parameters() for p in self.policies], 
-            bregman=potential, 
+            [p.parameters() for p in self.policies],
+            bregman=potential,
             tol=tol,
             device=self.device
         )
@@ -100,7 +100,7 @@ class MultiCoPG:
             self.critic_optim = [
                 torch.optim.Adam(c.parameters(), lr=critic_lr) for c in self.critics
             ]
-            
+
 
     def sample(self, verbose=False):
         """
@@ -108,7 +108,7 @@ class MultiCoPG:
         Sample observations actions and states. Returns trajectory observations
         actions rewards in single list format (which seperates trajectories
         using done mask).
-        """        
+        """
         # We collect trajectories all into one list (using a done mask) for simplicity.
         num_agents = len(self.policies)
         mat_states_t = []
@@ -123,14 +123,14 @@ class MultiCoPG:
 
         for j in range(self.batch_size):
             # Reset environment for each trajectory in batch.
-            obs = env.reset()
+            obs = self.env.reset()
             dones = [False for _ in range(num_agents)]
-            
+
             while (True):
                 # Record state...
                 mat_states_t.append(obs)
                 mat_action_mask_t.append([1. - int(elem) for elem in dones])
-                
+
                 # Since env is usually on CPU, send observation to GPU,
                 # sample, then collect back to CPU.
                 actions = []
@@ -145,7 +145,7 @@ class MultiCoPG:
                     actions.append(action)
 
                 # Advance environment one step forwards.
-                obs, rewards, dones, _ = env.step(actions)
+                obs, rewards, dones, _ = self.env.step(actions)
 
                 # Record actions, rewards, and inverse done mask.
                 mat_actions_t.append(actions)
@@ -177,7 +177,7 @@ class MultiCoPG:
         if verbose:
             torch.cuda.synchronize()
             step_start_time = time.time()
-         
+
         # Use critic function to get advantage.
         values, returns, advantages = [], [], []
 
@@ -190,19 +190,19 @@ class MultiCoPG:
         for i, q in enumerate(critics):
             val = q(mat_states[i]).detach()
             ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device)
- 
+
             advantage = ret - val
-        
+
             values.append(val)
             returns.append(ret)
-            advantages.append(torch.squeeze(advantage))   
-        
+            advantages.append(torch.squeeze(advantage))
+
         # Use sampled values to fit critic model.
         if self.self_play:
             # TODO(jjma): Currently only supports all symmetric players.
             cat_states = torch.cat([mat_states[i] for i in range(len(mat_states))])
             cat_returns = torch.cat(returns)
-            
+
             critic_update(cat_states, cat_returns, self.critics[0], self.critic_optim[0])
         else:
             for i, q in enumerate(self.critics):
@@ -211,17 +211,17 @@ class MultiCoPG:
         # Calculate log probabilities as well as compute gradient pseudoobjectives.
         log_probs = []
         gradient_losses = []
-        for i, p in enumerate(self.policies):            
+        for i, p in enumerate(self.policies):
             # Our training wrapper assumes that the policy returns a distribution.
-            lp_inid = p(mat_states[i]).log_prob(mat_actions[i])    
+            lp_inid = p(mat_states[i]).log_prob(mat_actions[i])
             # TODO(jjma): For games with single action per state, this works.
-            lp = lp_inid  
+            lp = lp_inid
             if lp_inid.ndim > 1:
                 lp = lp_inid.sum(1)
-            
+
             # Track log probabilities later to compute Hessian pseudoobjectives.
             log_probs.append(lp)
-            
+
             # Get gradient objective per player, which is log probabilty times advantage.
             prod = lp * advantages[i] * mat_action_mask[i]
             grad_loss = -prod.sum() / mat_action_mask[i].sum()
@@ -252,7 +252,7 @@ class MultiCoPG:
 #                     slp[0] = 0.
 #                 else:
 #                     slp[i] = torch.add(slp[i-1], lp[i-1]) * mask[i-1]
-     
+
         # Compute summed log probabilities for Hessian pseudoobjectives.
         s_log_probs = []
         for lp, action_mask in zip(log_probs, mat_action_mask):
@@ -262,71 +262,71 @@ class MultiCoPG:
                 # Get consecutive trajectory boundary indices for slicing.
                 start = traj_indices[i]
                 end = traj_indices[i+1]
-                
-                # Compute normal cumsum, append 0 to front to align, and 
+
+                # Compute normal cumsum, append 0 to front to align, and
                 # slice out trajectory length as givein in CoPG.
                 cumsum = torch.cumsum(lp[start:end], dim=0)
                 new_cumsum = torch.cat([
                     torch.tensor([0.], device=self.device, dtype=self.dtype),
                     cumsum
                 ])[:cumsum.size(0)]
-                
+
                 traj_cumsums.append(new_cumsum)
-                
+
             s_log_probs.append(torch.cat(traj_cumsums) * action_mask)
- 
+
         # Compute Hessian objectives.
         hessian_losses = [0. for _ in range(len(self.policies))]
         for i in range(len(log_probs)):
             for j in range(len(log_probs)):
                 if (i != j):
                     hessian_losses[i] -= (log_probs[i] * log_probs[j] * advantages[i]).mean()
-                    
+
                     term1 = s_log_probs[i][:-1] * log_probs[j][1:] * advantages[i][1:]
                     hessian_losses[i] -= term1.sum() / (term1.size(0) - self.batch_size + 1)
 
                     term2 = log_probs[i][1:] * s_log_probs[j][:-1] * advantages[i][1:]
                     hessian_losses[i] -= term2.sum() / (term2.size(0) - self.batch_size + 1)
-             
+
         # Update the policy parameters.
         self.policy_optim.zero_grad()
-        
+
 #         # Benchmarking code.
 #         torch.cuda.synchronize()
 #         start = time.time()
-       
+
 #         grad = torch.autograd.grad(gradient_losses[0], self.policies[0].parameters(), retain_graph=True)
-    
+
 #         torch.cuda.synchronize()
-#         print('grad_time:', time.time() - start)     
-        
+#         print('grad_time:', time.time() - start)
+
 #         torch.cuda.synchronize()
 #         start = time.time()
-       
+
 #         grad = torch.autograd.grad(hessian_losses[0], self.policies[0].parameters(), retain_graph=True)
-    
+
 #         torch.cuda.synchronize()
-#         print('hessian_grad_time:', time.time() - start) 
-        
+#         print('hessian_grad_time:', time.time() - start)
+
 #         torch.cuda.synchronize()
 #         start = time.time()
-       
+
 #         grad = torch.autograd.grad(gradient_losses[0], self.policies[0].parameters(), retain_graph=True)
-    
+
 #         torch.cuda.synchronize()
-#         print('grad_time_2:', time.time() - start)     
-        
+#         print('grad_time_2:', time.time() - start)
+
 #         torch.cuda.synchronize()
 #         start = time.time()
-       
+
 #         grad = torch.autograd.grad(hessian_losses[0], self.policies[0].parameters(), retain_graph=True)
-    
+
 #         torch.cuda.synchronize()
-#         print('hessian_grad_time_2:', time.time() - start) 
-        
-        
+#         print('hessian_grad_time_2:', time.time() - start)
+
+
         self.policy_optim.step(gradient_losses, hessian_losses, cgd=True)
-        
+
         # Print sampling time for debugging purposes.
         if verbose:
             torch.cuda.synchronize()

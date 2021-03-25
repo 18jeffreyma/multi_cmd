@@ -3,6 +3,8 @@
 import numpy as np
 import random
 import gym
+import pygame
+from . import graphics
 
 # TODO(jjma): Look into turning this into OpenAI gym.
 # TODO(jjma): Make number of players/goal size tunable?
@@ -23,7 +25,10 @@ class MarkovSoccer(object):
     OWN_GOAL_OTHER = 0.
     NORMAL_GOAL_WINNER = 1.
     NORMAL_GOAL_LOSER = -1.
-    NORMAL_GOAL_OTHER = -0.25
+    NORMAL_GOAL_OTHER = -0.2
+
+    # Render colors.
+    COLORS = ['red', 'green', 'blue', 'orange', 'black']
 
     def __init__(
         self
@@ -51,6 +56,7 @@ class MarkovSoccer(object):
         ]
 
         self._board_reset()
+        self.render_window = None
 
     def reset(self):
         self._board_reset()
@@ -73,8 +79,6 @@ class MarkovSoccer(object):
             old_pos = self.item_to_coord[i+1]
             new_pos = old_pos + self.moves[actions[i]]
 
-            print(i, actions[i], old_pos, new_pos)
-
             # If any moves will change state.
             if actions[i] > 0:
                 # Case 1: Player tries to move into boundary: no pos update.
@@ -87,18 +91,20 @@ class MarkovSoccer(object):
 
                 # Case 3: Colliding with another player.
                 elif (self.board[tuple(new_pos)] >= 1 and self.board[tuple(new_pos)] <= 4):
-                    other_player_idx = int(self.board[tuple(new_pos)] - 1)
+                    # Position does not change, as defined in Markov Soccer.
+                    other_player_idx = self.board[tuple(new_pos)] - 1
+
                     # Only update state if other player has ball; steal it.
                     if self.has_ball[other_player_idx]:
                         # Ball changes hands.
                         self.has_ball[other_player_idx] = False
                         self.has_ball[i] = True
 
-                        # Position does not change, as defined in Markov Soccer.
-                        new_pos = old_pos
-
                         # Update item tracker dictionary for ball.
-                        self.item_to_pos[MarkovSoccer.BALL] = new_pos
+                        self.item_to_coord[MarkovSoccer.BALL] = old_pos
+
+                    # No change in movement.
+                    new_pos = old_pos
 
                 # Case 4: Player has ball and moves into a goal.
                 elif self.has_ball[i] and self.board[tuple(new_pos)] > MarkovSoccer.GOAL_START_NUM:
@@ -106,16 +112,20 @@ class MarkovSoccer(object):
                     # TODO(jjma): Add cooperation ability here and tune reward.
                     if self.board[tuple(new_pos)] % 10 == i + 1:
                         rewards = np.array([MarkovSoccer.OWN_GOAL_OTHER for _ in range(MarkovSoccer.NUM_PLAYERS)])
-                        rewards[i] == MarkovSoccer.OWN_GOAL_LOSER
+                        rewards[i] = MarkovSoccer.OWN_GOAL_LOSER
                     else:
                         rewards = np.array([MarkovSoccer.NORMAL_GOAL_OTHER for _ in range(MarkovSoccer.NUM_PLAYERS)])
                         rewards[i] = MarkovSoccer.NORMAL_GOAL_WINNER
-                        loser_idx = (self.board[tuple(new_pos)] % 10) - 1
+                        loser_idx = self.board[tuple(new_pos)] % 10 - 1
                         rewards[loser_idx] = MarkovSoccer.NORMAL_GOAL_LOSER
 
                     # Mark game as done.
                     dones = [True for  _ in range(MarkovSoccer.NUM_PLAYERS)]
                     break
+
+                # Case 5: Player tries to move into a goal without ball.
+                elif self.board[tuple(new_pos)] > MarkovSoccer.GOAL_START_NUM:
+                    new_pos = old_pos
 
                 # Update position on board and in item dictionary if pos updated.
                 if not np.array_equal(new_pos, old_pos):
@@ -132,7 +142,6 @@ class MarkovSoccer(object):
 
         # Computer observations for learning algorithms to use.
         obs = self._compute_observations()
-
         return obs, rewards, dones, None
 
 
@@ -142,7 +151,7 @@ class MarkovSoccer(object):
         """
         # Internal board information.
         length = MarkovSoccer.BOARD_LENGTH
-        self.board = np.zeros((length+2, length+2))
+        self.board = np.zeros((length+2, length+2), dtype=np.int8)
         self.item_to_coord = {}
         self.has_ball = [False for _ in range(MarkovSoccer.NUM_PLAYERS)]
 
@@ -207,9 +216,74 @@ class MarkovSoccer(object):
 
         return observations
 
+    def render(self):
+        if self.render_window is None:
+            self.render_window = graphics.GraphWin(width=400, height=400)
+
+        # Clear previous drawing.
+        self.render_window.delete("all")
+
+        for i in range(MarkovSoccer.BOARD_LENGTH + 2):
+            for j in range(MarkovSoccer.BOARD_LENGTH + 2):
+                # Draw borders of game.
+                if self.board[i][j] == -1:
+                    sq = graphics.Rectangle(
+                        graphics.Point(50*j, 50*i),
+                        graphics.Point(50*(j+1), 50*(i+1))
+                    )
+                    sq.setFill('black')
+                    sq.draw(self.render_window)
+
+                # Draw players and matching goals.
+                elif self.board[i][j] > MarkovSoccer.GOAL_START_NUM:
+                    player_goal = graphics.Rectangle(
+                        graphics.Point(50*j, 50*i),
+                        graphics.Point(50*(j+1), 50*(i+1))
+                    )
+                    color = MarkovSoccer.COLORS[self.board[i][j] % 10 - 1]
+                    player_goal.setFill(color)
+                    player_goal.setOutline(color)
+                    player_goal.draw(self.render_window)
+
+                # Draw players.
+                elif self.board[i][j] >= 1 and self.board[i][j] <= 4:
+                    player = graphics.Circle(
+                        graphics.Point(50*(j + 0.5), 50*(i + 0.5)),
+                        20
+                    )
+                    color = MarkovSoccer.COLORS[self.board[i][j] % 10 - 1]
+                    player.setOutline(color)
+                    player.setWidth(5)
+                    player.draw(self.render_window)
+
+        # Draw ball on canvas.
+        ball_x, ball_y = self.item_to_coord[MarkovSoccer.BALL]
+        ball = graphics.Circle(
+            graphics.Point(50*(ball_y + 0.5), 50*(ball_x + 0.5)),
+            10
+        )
+        ball_color = MarkovSoccer.COLORS[MarkovSoccer.BALL - 1]
+        ball.setFill(ball_color)
+        ball.setOutline(ball_color)
+        ball.draw(self.render_window)
+
+
+    def close(self):
+        if self.render_window:
+            self.render_window.close()
 
 if __name__ == '__main__':
     env = MarkovSoccer()
-    print(env.board)
-    obj, rews, dones, _ = env.step([1, 0, 0, 0, 0])
-    print(env.board)
+    print(MarkovSoccer.COLORS)
+    while (True):
+        env.render()
+        input_strs = input("0 = stand, 1 = up, 2 = right, 3 = down, 4 = left: ").split(" ")
+        input_vals = [int(s) for s in input_strs]
+        assert len(input_vals) == 4
+
+        obs, rews, dones, _ = env.step(input_vals)
+
+        if all(dones):
+            break
+    print(rews)
+    env.close()
