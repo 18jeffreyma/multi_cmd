@@ -6,8 +6,8 @@
 # MacOS stuff.
 **/.DS_Store
 
-# Tensorboard logs.
-**/tensorboard/
+# Tensorboard logs disabled.
+# **/tensorboard/
 
 # C extensions
 *.so

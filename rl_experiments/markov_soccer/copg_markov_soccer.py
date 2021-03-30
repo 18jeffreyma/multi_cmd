@@ -22,7 +22,7 @@ device = torch.device('cuda:1')
 batch_size = 10
 n_steps = 30000
 run_id = "try1"
-verbose = True
+verbose = False
 
 # Create log directories and specify Tensorboard writer.
 model_location = 'model'
@@ -76,6 +76,7 @@ if last_teps is None:
     last_teps = 0
 
 for t_eps in range(last_teps, n_steps):
+    print(t_eps)
     # Sample and compute update.
     states, actions, action_mask, rewards, done = train_wrap.sample(verbose=verbose)
     train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)
