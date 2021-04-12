@@ -4,15 +4,16 @@ import numpy as np
 import random
 import gym
 import pygame
-# from . import graphics
+from . import graphics
 
 # TODO(jjma): Look into turning this into OpenAI gym.
 # TODO(jjma): Make number of players/goal size tunable?
 # TODO(jjma): Implement cooperation (shared goals, etc) or enable this in reward.
 class MarkovSoccer(object):
     # Game constants. Do not change.
-    BOARD_LENGTH = 6
+    BOARD_LENGTH = 8
     NUM_PLAYERS = 4
+    NUM_BALLS = 2
 
     # Board Labels
     INVALID_POS = -1
@@ -39,11 +40,13 @@ class MarkovSoccer(object):
             np.array([x+1, y+1]) for x in range(length) for y in range(length)
         ]
         # TODO(jjma): Currently, hard coded, need to generalize this.
+        half_idx = MarkovSoccer.BOARD_LENGTH // 2
+        full_idx = MarkovSoccer.BOARD_LENGTH
         self.goal_positions = [
-            [np.array((1, 3)), np.array((1, 4))],
-            [np.array((3, 6)), np.array((4, 6))],
-            [np.array((6, 3)), np.array((6, 4))],
-            [np.array((3, 1)), np.array((4, 1))]
+            [np.array((1, half_idx)), np.array((1, half_idx+1))],
+            [np.array((half_idx, full_idx)), np.array((half_idx+1, full_idx))],
+            [np.array((full_idx, half_idx)), np.array((full_idx, half_idx+1))],
+            [np.array((half_idx, 1)), np.array((half_idx+1, 1))]
         ]
 
         # Enumerate moves as defined in action space.
@@ -74,6 +77,7 @@ class MarkovSoccer(object):
         dones = [False for  _ in range(MarkovSoccer.NUM_PLAYERS)]
         rewards = np.array([0. for _ in range(MarkovSoccer.NUM_PLAYERS)])
 
+        print('order:', order)
         for i in order:
             # Default Case: Calculate new position based on action taken.
             old_pos = self.item_to_coord[i+1]
@@ -96,6 +100,7 @@ class MarkovSoccer(object):
 
                     # Only update state if other player has ball; steal it.
                     if self.has_ball[other_player_idx]:
+                        print('steal by player:', i)
                         # Ball changes hands.
                         self.has_ball[other_player_idx] = False
                         self.has_ball[i] = True
@@ -108,6 +113,7 @@ class MarkovSoccer(object):
 
                 # Case 4: Player has ball and moves into a goal.
                 elif self.has_ball[i] and self.board[tuple(new_pos)] > MarkovSoccer.GOAL_START_NUM:
+                    print('goal:', i)
                     # Check if own goal, reward differently.
                     # TODO(jjma): Add cooperation ability here and tune reward.
                     if self.board[tuple(new_pos)] % 10 == i + 1:
@@ -156,7 +162,7 @@ class MarkovSoccer(object):
         self.has_ball = [False for _ in range(MarkovSoccer.NUM_PLAYERS)]
 
         # Set coordindates in the map as defaults.
-        positions = random.sample(self.possible_coords, 5)
+        positions = random.sample(self.possible_coords, MarkovSoccer.NUM_PLAYERS + 1)
         for i, pos in enumerate(positions):
             self.item_to_coord[i+1] = pos
             self.board[tuple(pos)] = i+1
@@ -218,7 +224,11 @@ class MarkovSoccer(object):
 
     def render(self):
         if self.render_window is None:
-            self.render_window = graphics.GraphWin(width=400, height=400)
+            length = MarkovSoccer.BOARD_LENGTH
+            self.render_window = graphics.GraphWin(
+                width=50*(length+2),
+                height=50*(length+2)
+            )
 
         # Clear previous drawing.
         self.render_window.delete("all")
@@ -275,15 +285,20 @@ class MarkovSoccer(object):
 if __name__ == '__main__':
     env = MarkovSoccer()
     print(MarkovSoccer.COLORS)
+    env.render()
+    input_strs = input("0 = stand, 1 = up, 2 = right, 3 = down, 4 = left: ").split(" ")
+
     while (True):
-        env.render()
-        input_strs = input("0 = stand, 1 = up, 2 = right, 3 = down, 4 = left: ").split(" ")
+        print('====================')
         input_vals = [int(s) for s in input_strs]
         assert len(input_vals) == 4
 
         obs, rews, dones, _ = env.step(input_vals)
 
+        env.render()
+        input_strs = input("0 = stand, 1 = up, 2 = right, 3 = down, 4 = left: ").split(" ")
         if all(dones):
             break
+
     print(rews)
     env.close()

@@ -21,7 +21,7 @@ device = torch.device('cuda:1')
 # device = torch.device('cpu') # Uncomment to use CPU.
 batch_size = 10
 n_steps = 30000
-run_id = "try1"
+run_id = "try2"
 verbose = False
 
 # Create log directories and specify Tensorboard writer.
