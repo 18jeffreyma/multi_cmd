@@ -137,12 +137,16 @@ class MultiCoPG:
                 # sample, then collect back to CPU.
                 actions = []
                 for i in range(num_agents):
-                    policy = self.policies[i]
-                    obs_gpu = torch.tensor([obs[i]], device=self.device, dtype=self.dtype)
-                    action = policy(obs_gpu).sample().cpu().numpy()
-                    # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
-                    if action.ndim == 1 and action.size == 1:
-                        action = action[0]
+                    if not dones[i]:
+                        policy = self.policies[i]
+                        obs_gpu = torch.tensor([obs[i]], device=self.device, dtype=self.dtype)
+                        action = policy(obs_gpu).sample().cpu().numpy()
+                        # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
+                        if action.ndim == 1 and action.size == 1:
+                            action = action[0]
+                    else:
+                        # TODO(jjma): Check if this is valid for most envs.
+                        action = None
 
                     actions.append(action)
 
@@ -328,6 +332,10 @@ class MultiCoPG:
 
 
         self.policy_optim.step(gradient_losses, hessian_losses, cgd=True)
+
+        gradient_losses.clear()
+        hessian_losses.clear()
+
 
         # Print sampling time for debugging purposes.
         if verbose:
