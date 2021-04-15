@@ -111,12 +111,3 @@ for t_eps in range(last_teps, n_steps):
         critic_path = os.path.join(run_location, 'critic1_' + str(t_eps + 1) + '.pth')
         torch.save(p1.state_dict(), actor_path)
         torch.save(q.state_dict(), critic_path)
-
-
-    import gc
-    for obj in gc.get_objects():
-        try:
-            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-                print(type(obj), obj.size())
-        except:
-            pass
