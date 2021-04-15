@@ -18,12 +18,12 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 # Training settings (CHECK THESE BEFORE RUNNING).
-device = torch.device('cuda:2')
+device = torch.device('cuda:0')
 # device = torch.device('cpu') # Uncomment to use CPU.
-batch_size = 10
+batch_size = 16
 n_steps = 50000
 verbose = False
-run_id = "try2"
+run_id = "try3"
 
 # Create log directories and specify Tensorboard writer.
 model_location = 'model'
@@ -63,7 +63,7 @@ train_wrap = MultiCoPG(
     [q],
     batch_size=batch_size,
     self_play=True,
-    potential=potentials.squared_distance(1/0.005),
+    potential=potentials.squared_distance(1/0.001),
     critic_lr=1e-3,
     device=device
 )
