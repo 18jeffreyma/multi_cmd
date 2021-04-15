@@ -322,7 +322,7 @@ def exp_map(player_list_flattened, nash_list_flattened,
         mapped = [bregman['Dx'](bregman['Dx_inv'](param) + bregman['Dxx_vp'](param, nash))
                   for param, nash in zip(player_list_flattened, nash_list_flattened)]
 
-    return mapped
+    return [elem.detach() for elem in mapped]
 
 
 # TODO(jjma): make this user interface cleaner.
