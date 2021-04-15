@@ -59,7 +59,7 @@ def avp(
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
     prod_list = [torch.zeros_like(v, device=device) for v in vector_list_flattened]
-    
+
     for i, row_params in enumerate(player_list):
         for j, (col_params, vector_elem) in enumerate(zip(player_list, vector_list_flattened)):
             if i == j:
@@ -70,13 +70,13 @@ def avp(
             # Otherwise, we construct our Hessian vector products. Variable
             # retain_graph must be set to true, or we cant compute multiple
             # subsequent Hessians any more.
-            
+
             loss = hessian_loss_list[i] if not transpose else hessian_loss_list[j]
             grad_raw = autograd.grad(loss, col_params,
                                      create_graph=True,
                                      retain_graph=True,
                                      allow_unused=True)
-                
+
             grad_flattened = flatten_filter_none(grad_raw, col_params,
                                                  device=device)
 
@@ -90,6 +90,9 @@ def avp(
                                                 device=device)
 
             prod_list[i] += hvp_flattened
+
+    # Detach to get memory back.
+    prod_list = [elem.detach() for elem in prod_list]
 
     return prod_list
 
@@ -165,6 +168,9 @@ def antivp(
 
             prod_list[i] += 0.5 * (left_hvp_flattened - right_hvp_flattened)
 
+    # Detach to get memory back.
+    prod_list = [elem.detach() for elem in prod_list]
+
     return prod_list
 
 
@@ -230,11 +236,11 @@ def metamatrix_conjugate_gradient(
                   bregman=bregman, transpose=False, device=device)
         At_A_x = mvp(hessian_loss_list, player_list, player_list_flattened, A_x,
                      bregman=bregman, transpose=True, device=device)
-        
+
         # torch._foreach_sub_(r, At_A_x)
         for r_elem, At_A_x_elem in zip(r, At_A_x):
             r_elem -= At_A_x_elem
-      
+
 
     # Use preconditioner if available...
     z = r
@@ -267,12 +273,12 @@ def metamatrix_conjugate_gradient(
 
             # torch._foreach_add_(vector_list_flattened, p, alpha=alpha)
             # torch._foreach_sub_(r, At_A_p, alpha=alpha)
-            
+
             for vlf_elem, p_elem in zip(vector_list_flattened, p):
                 vlf_elem += p_elem * alpha
             for r_elem, At_A_P_elem in zip(r, At_A_p):
                 r_elem -= At_A_P_elem * alpha
-            
+
             # Calculate new residual metric
             new_rdotr = sum(torch.dot(r_elem, r_elem) for r_elem in r)
 
@@ -289,15 +295,15 @@ def metamatrix_conjugate_gradient(
 
             # Otherwise, update and continue.
             # (3) p_new = r_new + beta * p
-            
+
             # torch._foreach_add(z, p, alpha=beta)
             beta = torch.div(new_rdotz, rdotz)
             p = [z_elem + p_elem * beta for z_elem, p_elem in zip(z, p)]
 
             rdotr = new_rdotr
             rdotz = new_rdotz
-            
-            
+
+
     return vector_list_flattened, i+1, rdotr
 
 
@@ -439,7 +445,7 @@ class CMD_RL(CMD):
         player_list_flattened = [flatten_filter_none(player, player,
                                                      detach=True, device=self.device)
                                  for player in player_list]
-        
+
         # Compute dual solution first, before mapping back to primal.
         # Use dual solution as initial guess for numerical speed.
         nash_list_flattened, n_iter, res = metamatrix_conjugate_gradient(

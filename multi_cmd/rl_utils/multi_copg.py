@@ -19,6 +19,8 @@ def critic_update(state_mat, return_mat, q, optim_q):
     critic_loss.backward()
     optim_q.step()
 
+    critic_loss = critic_loss.detach()
+
 
 # TODO(jjma): Revisit this?
 def get_advantage(
