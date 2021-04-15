@@ -36,8 +36,8 @@ env = gym.make('python_4p-v1')
 dtype = torch.float32
 
 # Specify episode number to use as last checkpoint (for loading model).
-last_teps = None # 2100
-last_run_id = None
+last_teps = 4300 # 2100
+last_run_id = "try2"
 
 # Instantiate a policy and critic; we will use self play and a symmetric critic for this game.
 p1 = policy().to(device).type(dtype)
@@ -103,9 +103,20 @@ for t_eps in range(last_teps, n_steps):
         writer.add_scalar('agent4/disc_avg_reward', disc_avg_reward[3], t_eps)
         writer.add_scalar('game/avg_max_trajectory length', len(done[0]) / batch_size, t_eps)
 
+        torch.cuda.empty_cache()
+
     if ((t_eps + 1) % 100) == 0:
         print('saving checkpoint:', t_eps + 1)
         actor_path = os.path.join(run_location, 'actor1_' + str(t_eps + 1) + '.pth')
         critic_path = os.path.join(run_location, 'critic1_' + str(t_eps + 1) + '.pth')
         torch.save(p1.state_dict(), actor_path)
         torch.save(q.state_dict(), critic_path)
+
+
+    import gc
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                print(type(obj), obj.size())
+        except:
+            pass
