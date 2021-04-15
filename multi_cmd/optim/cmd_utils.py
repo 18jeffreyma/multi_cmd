@@ -30,7 +30,7 @@ def flatten_filter_none(grad_list, param_list,
 
     # Use this only if higher order derivatives are not needed.
     if detach:
-        result.detach_()
+        result.detach()
 
     return result
 
@@ -215,12 +215,12 @@ def metamatrix_conjugate_gradient(
                                  allow_unused=True)
         grad_flattened = flatten_filter_none(grad_raw, param_tensors,
                                              neg=True, detach=True, device=device)
-        b.append(grad_flattened.detach_())
+        b.append(grad_flattened.detach())
 
     # Multiplying both sides by transpose to ensure p.s.d.
     # r = A^t * b (before we subtract)
     r = mvp(hessian_loss_list, player_list, player_list_flattened, b,
-            bregman=bregman, transpose=True, device=device).detach_()
+            bregman=bregman, transpose=True, device=device).detach()
 
     # Set relative residual threshold based on norm of b.
     norm_At_b = sum(torch.dot(r_elem, r_elem).item() for r_elem in r)
@@ -233,9 +233,9 @@ def metamatrix_conjugate_gradient(
     else:
         # Compute initial residual if a guess is given.
         A_x = mvp(hessian_loss_list, player_list, player_list_flattened, vector_list_flattened,
-                  bregman=bregman, transpose=False, device=device).detach_()
+                  bregman=bregman, transpose=False, device=device).detach()
         At_A_x = mvp(hessian_loss_list, player_list, player_list_flattened, A_x,
-                     bregman=bregman, transpose=True, device=device).detach_()
+                     bregman=bregman, transpose=True, device=device).detach()
 
         # torch._foreach_sub_(r, At_A_x)
         for r_elem, At_A_x_elem in zip(r, At_A_x):
@@ -260,9 +260,9 @@ def metamatrix_conjugate_gradient(
     # Use conjugate gradient to find vector solution.
     for i in range(n_steps):
         A_p = mvp(hessian_loss_list, player_list, player_list_flattened, p,
-                  bregman=bregman, transpose=False, device=device).detach_()
+                  bregman=bregman, transpose=False, device=device).detach()
         At_A_p = mvp(hessian_loss_list, player_list, player_list_flattened, A_p,
-                     bregman=bregman, transpose=True, device=device).detach_()
+                     bregman=bregman, transpose=True, device=device).detach()
 
         with torch.no_grad():
             alpha = torch.div(rdotz, sum(torch.dot(e1, e2) for e1, e2 in zip(p, At_A_p)))
