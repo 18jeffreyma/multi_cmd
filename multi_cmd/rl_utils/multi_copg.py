@@ -186,7 +186,7 @@ class MultiSimGD(TrainingWrapper):
 
         Initialize training wrapper with any gym and policies.
         """
-        super(MultiCoPG, self).__init__(
+        super(MultiSimGD, self).__init__(
             env,
             policies,
             critics,
