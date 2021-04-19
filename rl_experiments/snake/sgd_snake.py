@@ -35,8 +35,8 @@ env = gym.make('python_4p-v1')
 dtype = torch.float32
 
 # Specify episode number to use as last checkpoint (for loading model).
-last_teps = 4300 # 2100
-last_run_id = "try2"
+last_teps = None # 2100
+last_run_id = None
 
 # Instantiate a policy and critic; we will use self play and a symmetric critic for this game.
 p1 = policy().to(device).type(dtype)
