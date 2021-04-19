@@ -19,10 +19,6 @@ class SGD(object):
         # TODO(jjma): set this device in CMD algorithm.
         self.device = device
 
-    def zero_grad(self):
-        for optim in self.state['optim_list']:
-            optim.zero_grad()
-
     def state_dict(self):
         return self.state
 
