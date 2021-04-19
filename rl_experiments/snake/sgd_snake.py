@@ -3,8 +3,7 @@ import os, sys
 
 # Import PyTorch and training wrapper for Multi CoPG.
 import torch
-from multi_cmd.optim import potentials
-from multi_cmd.rl_utils.multi_copg import MultiCoPG
+from multi_cmd.rl_utils.multi_copg import MultiSimGD
 torch.backends.cudnn.benchmark = True
 
 # Import game environment (snake env is called "envs").
@@ -23,7 +22,7 @@ device = torch.device('cuda:0')
 batch_size = 16
 n_steps = 50000
 verbose = False
-run_id = "try3"
+run_id = "sgd_try1"
 
 # Create log directories and specify Tensorboard writer.
 model_location = 'model'
@@ -57,13 +56,13 @@ if not os.path.exists(logs_location):
 writer = SummaryWriter(logs_location)
 
 # Define training environment with env provided.
-train_wrap = MultiCoPG(
+train_wrap = MultiSimGD(
     env,
     policies,
     [q],
     batch_size=batch_size,
     self_play=True,
-    potential=potentials.squared_distance(1/0.002),
+    lr=0.002,
     critic_lr=1e-3,
     device=device
 )

@@ -5,6 +5,7 @@ import time
 import numpy as np
 import torch
 from multi_cmd.optim import cmd_utils, potentials
+from multi_cmd.optim import gda_utils
 
 # TODO(jjma): Casework for this?
 DEFAULT_DTYPE = torch.float32
@@ -44,21 +45,18 @@ def get_advantage(
     return vals
 
 
-# TODO(jjma): Refine this class structure based on feedback.
-class MultiCoPG:
-    # TODO(jjma): Horizon, gamma tuning?
+class TrainingWrapper:
     def __init__(
         self,
         env,
         policies,
         critics,
         batch_size=32,
-        self_play=False,
-        potential=potentials.squared_distance(1),
         critic_lr=1e-3,
         tol=1e-3,
         device=torch.device('cpu'),
-        dtype=DEFAULT_DTYPE
+        dtype=DEFAULT_DTYPE,
+        self_play=False
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -69,13 +67,12 @@ class MultiCoPG:
 
         Initialize training wrapper with any gym and policies.
         """
+
         # Store game environment.
         self.env = env
-
         # Training parameters.
         self.policies = policies
         self.critics = critics
-        self.self_play = self_play
 
         # Sampling parameters.
         self.batch_size = batch_size
@@ -84,15 +81,8 @@ class MultiCoPG:
         self.device = device
         self.dtype = dtype
 
-        # Optimizers for policies and critics.
-        self.policy_optim = cmd_utils.CMD_RL(
-            [p.parameters() for p in self.policies],
-            bregman=potential,
-            tol=tol,
-            device=self.device
-        )
-
         # TODO(jjma): Implement self play in a cleaner way.
+        self.self_play = self_play
         if self.self_play:
             assert(len(self.critics) == 1)
             self.critic_optim = [
@@ -102,7 +92,6 @@ class MultiCoPG:
             self.critic_optim = [
                 torch.optim.Adam(c.parameters(), lr=critic_lr) for c in self.critics
             ]
-
 
     def sample(self, verbose=False):
         """
@@ -144,7 +133,6 @@ class MultiCoPG:
                     if action.ndim == 1 and action.size == 1:
                         action = action[0]
 
-
                     actions.append(action)
 
                 # Advance environment one step forwards.
@@ -171,6 +159,183 @@ class MultiCoPG:
         mat_done = torch.tensor(mat_done_t, dtype=self.dtype, device=self.device).transpose(0, 1)
 
         return mat_states, mat_actions, mat_action_mask, mat_rewards, mat_done
+
+
+# TODO(jjma): Refine this class structure based on feedback.
+class MultiSimGD(TrainingWrapper):
+    # TODO(jjma): Horizon, gamma tuning?
+    def __init__(
+        self,
+        env,
+        policies,
+        critics,
+        batch_size=32,
+        critic_lr=1e-3,
+        tol=1e-3,
+        device=torch.device('cpu'),
+        dtype=DEFAULT_DTYPE,
+        self_play=False,
+        lr=0.002
+    ):
+        """
+        :param env: OpenAI gym instance to train on
+        :param policies: List of policies in same order as gym observations.
+        :param batch_size: Number of trajectories to collect for each training step.
+        :param potential: Bregman potential to use for optimizer.
+        :param device: Device to compute on.
+
+        Initialize training wrapper with any gym and policies.
+        """
+        super(MultiCoPG, self).__init__(
+            env,
+            policies,
+            critics,
+            batch_size=batch_size,
+            critic_lr=critic_lr,
+            tol=tol,
+            device=device,
+            dtype=dtype,
+            self_play=self_play
+        )
+
+        # Optimizers for policies and critics.
+        self.policy_optim = gda_utils.SGD(
+            [p.parameters() for p in self.policies],
+            [lr for _ in self.policies],
+            device=device
+        )
+
+
+    def step(self, mat_states, mat_actions, mat_action_mask, mat_rewards, mat_done, verbose=False):
+        """
+        Compute update step for policies and critics.
+        """
+        if verbose:
+            torch.cuda.synchronize()
+            step_start_time = time.time()
+
+        # Use critic function to get advantage.
+        values, returns, advantages = [], [], []
+
+        # TODO(jjma): Fix this when making self-play more robust.
+        critics = self.critics
+        if self.self_play:
+            critics = [self.critics[0] for _ in range(len(self.policies))]
+
+        # Compute generalized advantage estimation (GAE).
+        for i, q in enumerate(critics):
+            val = q(mat_states[i]).detach()
+            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device)
+
+            advantage = ret - val
+
+            values.append(val)
+            returns.append(ret)
+            advantages.append(torch.squeeze(advantage))
+
+        # Use sampled values to fit critic model.
+        if self.self_play:
+            # TODO(jjma): Currently only supports all symmetric players.
+            cat_states = torch.cat([mat_states[i] for i in range(len(mat_states))])
+            cat_returns = torch.cat(returns)
+
+            critic_update(cat_states, cat_returns, self.critics[0], self.critic_optim[0])
+        else:
+            for i, q in enumerate(self.critics):
+                critic_update(mat_states[i], returns[i], q, self.critic_optim[i])
+
+        # Calculate log probabilities as well as compute gradient pseudoobjectives.
+        log_probs = []
+        gradient_losses = []
+        for i, p in enumerate(self.policies):
+            # Our training wrapper assumes that the policy returns a distribution.
+            lp_inid = p(mat_states[i]).log_prob(mat_actions[i])
+            # TODO(jjma): For games with single action per state, this works.
+            lp = lp_inid
+            if lp_inid.ndim > 1:
+                lp = lp_inid.sum(1)
+
+            # Track log probabilities later to compute Hessian pseudoobjectives.
+            log_probs.append(lp)
+
+            # Get gradient objective per player, which is log probabilty times advantage.
+            prod = lp * advantages[i] * mat_action_mask[i]
+            grad_loss = -prod.sum() / mat_action_mask[i].sum()
+
+            gradient_losses.append(grad_loss)
+
+        # TODO(jjma): Calculate indices of trajectory. This assumes that all agents
+        # have trajectory with splits same to the player with the longest trajectory.
+        traj_indices = []
+        traj_done = True
+        for i in range(0, mat_done[0].size(0)):
+            # When we start another trajectory, we mark the starting index.
+            if traj_done and mat_done[0][i] == 1.:
+                traj_indices.append(i)
+                traj_done = False
+
+            # Otherwise, when we encounter 0, we know trajectory is over.
+            elif mat_done[0][i] == 0.:
+                traj_done = True
+        # Include last index to compute pairs.
+        traj_indices.append(mat_done[0].size(0))
+
+        # Update the policy parameters.
+        self.policy_optim.zero_grad()
+        self.policy_optim.step(gradient_losses)
+
+        gradient_losses.clear()
+
+        # Print sampling time for debugging purposes.
+        if verbose:
+            torch.cuda.synchronize()
+            print('step took:', time.time() - step_start_time)
+
+
+# TODO(jjma): Refine this class structure based on feedback.
+class MultiCoPG(TrainingWrapper):
+    # TODO(jjma): Horizon, gamma tuning?
+    def __init__(
+        self,
+        env,
+        policies,
+        critics,
+        batch_size=32,
+        critic_lr=1e-3,
+        tol=1e-3,
+        device=torch.device('cpu'),
+        dtype=DEFAULT_DTYPE,
+        potential=potentials.squared_distance(1),
+        self_play=False,
+    ):
+        """
+        :param env: OpenAI gym instance to train on
+        :param policies: List of policies in same order as gym observations.
+        :param batch_size: Number of trajectories to collect for each training step.
+        :param potential: Bregman potential to use for optimizer.
+        :param device: Device to compute on.
+
+        Initialize training wrapper with any gym and policies.
+        """
+        super(MultiCoPG, self).__init__(
+            env,
+            policies,
+            critics,
+            batch_size=batch_size,
+            critic_lr=critic_lr,
+            tol=tol,
+            device=device,
+            dtype=dtype,
+            self_play=self_play
+        )
+
+        # Optimizers for policies and critics.
+        self.policy_optim = cmd_utils.CMD_RL(
+            [p.parameters() for p in self.policies],
+            bregman=potential,
+            tol=tol,
+            device=self.device
+        )
 
 
     def step(self, mat_states, mat_actions, mat_action_mask, mat_rewards, mat_done, verbose=False):
@@ -293,46 +458,10 @@ class MultiCoPG:
 
         # Update the policy parameters.
         self.policy_optim.zero_grad()
-
-#         # Benchmarking code.
-#         torch.cuda.synchronize()
-#         start = time.time()
-
-#         grad = torch.autograd.grad(gradient_losses[0], self.policies[0].parameters(), retain_graph=True)
-
-#         torch.cuda.synchronize()
-#         print('grad_time:', time.time() - start)
-
-#         torch.cuda.synchronize()
-#         start = time.time()
-
-#         grad = torch.autograd.grad(hessian_losses[0], self.policies[0].parameters(), retain_graph=True)
-
-#         torch.cuda.synchronize()
-#         print('hessian_grad_time:', time.time() - start)
-
-#         torch.cuda.synchronize()
-#         start = time.time()
-
-#         grad = torch.autograd.grad(gradient_losses[0], self.policies[0].parameters(), retain_graph=True)
-
-#         torch.cuda.synchronize()
-#         print('grad_time_2:', time.time() - start)
-
-#         torch.cuda.synchronize()
-#         start = time.time()
-
-#         grad = torch.autograd.grad(hessian_losses[0], self.policies[0].parameters(), retain_graph=True)
-
-#         torch.cuda.synchronize()
-#         print('hessian_grad_time_2:', time.time() - start)
-
-
         self.policy_optim.step(gradient_losses, hessian_losses, cgd=True)
 
         gradient_losses.clear()
         hessian_losses.clear()
-
 
         # Print sampling time for debugging purposes.
         if verbose:

@@ -10,7 +10,7 @@ env = gym.make('python_4p-v1')
 
 # Load policy from saved checkpoints.
 p1 = policy()
-p1.load_state_dict(torch.load("model/try2/actor1_4300.pth", map_location=torch.device('cpu')))
+p1.load_state_dict(torch.load("model/try3/actor1_5900.pth", map_location=torch.device('cpu')))
 policies = [p1 for _ in range(4)]
 
 # Reset environment for visualization.
@@ -26,7 +26,6 @@ while (True):
     actions = []
     for i in range(len(policies)):
         obs_gpu = torch.tensor([obs[i]], dtype=torch.float32)
-        print(obs_gpu[0][1])
         dist = policies[i](obs_gpu)
         print(dist.probs)
         action = dist.sample().numpy()
