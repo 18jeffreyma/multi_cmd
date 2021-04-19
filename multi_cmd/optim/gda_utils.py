@@ -1,6 +1,13 @@
 import torch
 import torch.autograd as autograd
 
+def zero_grad(params):
+    """Given some list of Tensors, zero and reset gradients."""
+    for p in params:
+        if p.grad is not None:
+            p.grad.detach()
+            p.grad.zero_()
+
 # TODO(jjma): make this user interface cleaner.
 class SGD(object):
     """Optimizer class for simultaneous SGD"""
@@ -18,6 +25,10 @@ class SGD(object):
                       'lr_list': lr_list}
         # TODO(jjma): set this device in CMD algorithm.
         self.device = device
+
+    def zero_grad(self):
+        for player in self.state['player_list']:
+            zero_grad(player)
 
     def state_dict(self):
         return self.state
