@@ -421,7 +421,7 @@ class CMD_RL(CMD):
     def __init__(self, player_list,
                  bregman=potentials.squared_distance(1),
                  antisymetric=False,
-                 tol=1e-8, atol=1e-6,
+                 tol=1e-5, atol=1e-5,
                  n_steps=None,
                  device=torch.device('cpu')
                 ):

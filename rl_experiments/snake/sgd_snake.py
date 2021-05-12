@@ -17,12 +17,12 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 # Training settings (CHECK THESE BEFORE RUNNING).
-device = torch.device('cuda:0')
+device = torch.device('cuda:2')
 # device = torch.device('cpu') # Uncomment to use CPU.
 batch_size = 16
 n_steps = 50000
 verbose = False
-run_id = "sgd_try1"
+run_id = "sgd_try1_lr2e-3"
 
 # Create log directories and specify Tensorboard writer.
 model_location = 'model'
@@ -75,6 +75,7 @@ if last_teps is None:
     last_teps = 0
 
 for t_eps in range(last_teps, n_steps):
+    print(t_eps)
     # Sample and compute update.
     states, actions, action_mask, rewards, done = train_wrap.sample(verbose=verbose)
     train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)

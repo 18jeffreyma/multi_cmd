@@ -23,7 +23,7 @@ device = torch.device('cuda:0')
 batch_size = 16
 n_steps = 50000
 verbose = False
-run_id = "try3"
+run_id = "copg_try1_lr2e-3"
 
 # Create log directories and specify Tensorboard writer.
 model_location = 'model'
@@ -36,8 +36,8 @@ env = gym.make('python_4p-v1')
 dtype = torch.float32
 
 # Specify episode number to use as last checkpoint (for loading model).
-last_teps = 4300 # 2100
-last_run_id = "try2"
+last_teps = None # 2100
+last_run_id = None
 
 # Instantiate a policy and critic; we will use self play and a symmetric critic for this game.
 p1 = policy().to(device).type(dtype)
@@ -80,6 +80,7 @@ for t_eps in range(last_teps, n_steps):
     states, actions, action_mask, rewards, done = train_wrap.sample(verbose=verbose)
     train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)
 
+    # Everything below is logging and model checkpoint, can ignore.
     if ((t_eps + 1) % 20) == 0:
         print("logging progress:", t_eps + 1)
 

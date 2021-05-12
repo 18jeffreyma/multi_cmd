@@ -56,7 +56,9 @@ class TrainingWrapper:
         tol=1e-3,
         device=torch.device('cpu'),
         dtype=DEFAULT_DTYPE,
-        self_play=False
+        self_play=False,
+        gamma=0.99,
+        tau=0.95,
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -92,6 +94,10 @@ class TrainingWrapper:
             self.critic_optim = [
                 torch.optim.Adam(c.parameters(), lr=critic_lr) for c in self.critics
             ]
+
+        # GAE estimation work.
+        self.gamma = gamma
+        self.tau = tau
 
     def sample(self, verbose=False):
         """
@@ -225,7 +231,8 @@ class MultiSimGD(TrainingWrapper):
         # Compute generalized advantage estimation (GAE).
         for i, q in enumerate(critics):
             val = q(mat_states[i]).detach()
-            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device)
+            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], 
+                                tau=self.tau, gamma=self.gamma, device=self.device)
 
             advantage = ret - val
 
@@ -264,22 +271,6 @@ class MultiSimGD(TrainingWrapper):
 
             gradient_losses.append(grad_loss)
 
-        # TODO(jjma): Calculate indices of trajectory. This assumes that all agents
-        # have trajectory with splits same to the player with the longest trajectory.
-        traj_indices = []
-        traj_done = True
-        for i in range(0, mat_done[0].size(0)):
-            # When we start another trajectory, we mark the starting index.
-            if traj_done and mat_done[0][i] == 1.:
-                traj_indices.append(i)
-                traj_done = False
-
-            # Otherwise, when we encounter 0, we know trajectory is over.
-            elif mat_done[0][i] == 0.:
-                traj_done = True
-        # Include last index to compute pairs.
-        traj_indices.append(mat_done[0].size(0))
-
         # Update the policy parameters.
         self.policy_optim.zero_grad()
         self.policy_optim.step(gradient_losses)
@@ -302,7 +293,7 @@ class MultiCoPG(TrainingWrapper):
         critics,
         batch_size=32,
         critic_lr=1e-3,
-        tol=1e-3,
+        tol=1e-6,
         device=torch.device('cpu'),
         dtype=DEFAULT_DTYPE,
         potential=potentials.squared_distance(1),

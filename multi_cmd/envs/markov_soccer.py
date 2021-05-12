@@ -4,7 +4,7 @@ import numpy as np
 import random
 import gym
 import pygame
-from . import graphics
+# from . import graphics
 
 # TODO(jjma): Look into turning this into OpenAI gym.
 # TODO(jjma): Make number of players/goal size tunable?
@@ -77,7 +77,6 @@ class MarkovSoccer(object):
         dones = [False for  _ in range(MarkovSoccer.NUM_PLAYERS)]
         rewards = np.array([0. for _ in range(MarkovSoccer.NUM_PLAYERS)])
 
-        print('order:', order)
         for i in order:
             # Default Case: Calculate new position based on action taken.
             old_pos = self.item_to_coord[i+1]
@@ -100,7 +99,6 @@ class MarkovSoccer(object):
 
                     # Only update state if other player has ball; steal it.
                     if self.has_ball[other_player_idx]:
-                        print('steal by player:', i)
                         # Ball changes hands.
                         self.has_ball[other_player_idx] = False
                         self.has_ball[i] = True
@@ -113,7 +111,6 @@ class MarkovSoccer(object):
 
                 # Case 4: Player has ball and moves into a goal.
                 elif self.has_ball[i] and self.board[tuple(new_pos)] > MarkovSoccer.GOAL_START_NUM:
-                    print('goal:', i)
                     # Check if own goal, reward differently.
                     # TODO(jjma): Add cooperation ability here and tune reward.
                     if self.board[tuple(new_pos)] % 10 == i + 1:
