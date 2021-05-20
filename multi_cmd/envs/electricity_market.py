@@ -103,7 +103,7 @@ class ElectricityMarketV1:
     def __init__(self, trajectory_length=24):
         print('initializing game')
         # Number of players, sixth agent is a non-renewable agent.
-        self.num_players = 5
+        self.num_players = 3
         self.current_count = 0
         self.trajectory_length = trajectory_length
 
@@ -126,9 +126,10 @@ class ElectricityMarketV1:
         self.load_status = np.random.randint(2, size=6)
 
         # Return load status as observation.
-        return self.load_status
+        return [self.load_status[:6] for _ in range(self.num_players)]
 
     def step(self, p_maxs):
+        print(p_maxs)
         """Pmaxs only contain active agents, we assume sixth agent is a large non-renewable."""
 
         # Calculate new demand (w.r.t. load_status) and return profit.
@@ -143,8 +144,6 @@ class ElectricityMarketV1:
         )
 
         # TODO(jjma): Update load status.
-        print("gen:", gen)
-        print("lmp:", lmp)
         self.load_status = np.greater(lmp, self.thresholds).astype(float)
         self.current_count += 1
 
@@ -154,7 +153,7 @@ class ElectricityMarketV1:
         else:
             dones = [False] * self.num_players
 
-        return [self.load_status[:5] for _ in range(self.num_players)], profit, dones, None
+        return [self.load_status[:6] for _ in range(self.num_players)], [profit[0], profit[2], profit[4]], dones, (gen, lmp)
 
     
 
@@ -167,13 +166,18 @@ if __name__ == "__main__":
 
     test_pmaxs = np.array([0., 0., 0.])
 
-    obs, rewards, dones, _ = env.step(test_pmaxs[:5])
+    obs, rewards, dones, (gen, lmp) = env.step(test_pmaxs[:3])
     print('obs:', obs)
     print('rewards:', rewards)
+    print('gen:', gen)
+    print('lmp:', lmp)
 
-    test_pmaxs = np.array([200., 250., 250.])
+    test_pmaxs = np.array([400., 500., 500.])
 
-    obs, rewards, dones, _ = env.step(test_pmaxs[:5])
+    obs, rewards, dones, (gen, lmp) = env.step(test_pmaxs[:3])
     print('obs:', obs)
+    print('rewards:', rewards)
+    print('gen:', gen)
+    print('lmp:', lmp)
 
     

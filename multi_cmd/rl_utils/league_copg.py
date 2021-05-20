@@ -27,7 +27,7 @@ def critic_update(state_mat, return_mat, q, optim_q):
 # TODO(jjma): Revisit this?
 def get_advantage(
     next_value, reward_mat, value_mat, masks,
-    gamma=0.99, tau=0.95, device=torch.device('cpu')
+    gamma=0.95, tau=0.95, device=torch.device('cpu')
 ):
     insert_tensor = torch.tensor([[float(next_value)]], device=device)
     value_mat = torch.cat([value_mat, insert_tensor])
@@ -227,6 +227,8 @@ class LeagueTrainingSimGD:
         if verbose:
             torch.cuda.synchronize()
             print('step took:', time.time() - step_start_time)
+
+        return mat_states, mat_actions, mat_action_mask, mat_rewards, mat_done
         
 class LeagueTrainingCoPG:
     def __init__(
@@ -275,6 +277,8 @@ class LeagueTrainingCoPG:
         self.critic_optim = [
             torch.optim.Adam(c.parameters(), lr=critic_lr) for c in self.critics
         ]
+
+        self.tol = tol
 
     def step(self, verbose=False):
         # TODO(jjma):
@@ -350,6 +354,8 @@ class LeagueTrainingCoPG:
         mat_rewards = torch.tensor(mat_rewards_t, dtype=self.dtype, device=self.device).transpose(0, 1)
         mat_done = torch.tensor(mat_done_t, dtype=self.dtype, device=self.device).transpose(0, 1)
 
+        print('finished sampling')
+
         if verbose:
             torch.cuda.synchronize()
             step_start_time = time.time()
@@ -396,9 +402,9 @@ class LeagueTrainingCoPG:
 
         # TODO(jjma): Calculate indices of trajectory. This assumes that all agents
         # have trajectory with splits same to the player with the longest trajectory.
-        traj_indices = []
+        traj_indices = [0]
         traj_done = True
-        for i in range(0, mat_done[0].size(0)):
+        for i in range(1, mat_done[0].size(0)):
             # When we start another trajectory, we mark the starting index.
             if traj_done and mat_done[0][i] == 1.:
                 traj_indices.append(i)
@@ -426,8 +432,7 @@ class LeagueTrainingCoPG:
                 new_cumsum = torch.cat([
                     torch.tensor([0.], device=self.device, dtype=self.dtype),
                     cumsum
-                ])[:cumsum.size(0)]
-
+                ])[:(end - start)]
                 traj_cumsums.append(new_cumsum)
 
             s_log_probs.append(torch.cat(traj_cumsums) * action_mask)
@@ -451,7 +456,7 @@ class LeagueTrainingCoPG:
             [self.policies[idx].parameters() for idx in chosen_policy_indices],
             bregman=potentials.squared_distance(1/self.policy_lr),
             device=self.device,
-            tol=1e-4
+            tol=self.tol
         )
         self.policy_optim.zero_grad()
         self.policy_optim.step(gradient_losses, hessian_losses, cgd=True)
@@ -463,5 +468,7 @@ class LeagueTrainingCoPG:
         if verbose:
             torch.cuda.synchronize()
             print('step took:', time.time() - step_start_time)
+
+        return mat_states, mat_actions, mat_action_mask, mat_rewards, mat_done
         
 

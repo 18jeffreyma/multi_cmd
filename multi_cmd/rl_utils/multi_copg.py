@@ -134,7 +134,11 @@ class TrainingWrapper:
                 for i in range(num_agents):
                     policy = self.policies[i]
                     obs_gpu = torch.tensor([obs[i]], device=self.device, dtype=self.dtype)
-                    action = policy(obs_gpu).sample().cpu().numpy()
+                    dist = policy(obs_gpu)
+                    print('loc:', dist.loc)
+                    print('scale:', dist.scale)
+
+                    action = dist.sample().cpu().numpy()
                     # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
                     if action.ndim == 1 and action.size == 1:
                         action = action[0]
@@ -181,7 +185,9 @@ class MultiSimGD(TrainingWrapper):
         device=torch.device('cpu'),
         dtype=DEFAULT_DTYPE,
         self_play=False,
-        lr=0.002
+        policy_lr=0.002,
+        gamma=0.99,
+        tau=0.95,
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -201,13 +207,15 @@ class MultiSimGD(TrainingWrapper):
             tol=tol,
             device=device,
             dtype=dtype,
-            self_play=self_play
+            self_play=self_play,
+            gamma=gamma,
+            tau=tau
         )
 
         # Optimizers for policies and critics.
         self.policy_optim = gda_utils.SGD(
             [p.parameters() for p in self.policies],
-            [lr for _ in self.policies],
+            [policy_lr for _ in self.policies],
             device=device
         )
 
@@ -298,6 +306,8 @@ class MultiCoPG(TrainingWrapper):
         dtype=DEFAULT_DTYPE,
         potential=potentials.squared_distance(1),
         self_play=False,
+        gamma=0.99,
+        tau=0.95,
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -317,7 +327,9 @@ class MultiCoPG(TrainingWrapper):
             tol=tol,
             device=device,
             dtype=dtype,
-            self_play=self_play
+            self_play=self_play,
+            gamma=gamma,
+            tau=tau,
         )
 
         # Optimizers for policies and critics.
@@ -348,8 +360,8 @@ class MultiCoPG(TrainingWrapper):
         # Compute generalized advantage estimation (GAE).
         for i, q in enumerate(critics):
             val = q(mat_states[i]).detach()
-            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device)
-
+            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], 
+                                tau=self.tau, gamma=self.gamma, device=self.device)
             advantage = ret - val
 
             values.append(val)
@@ -389,9 +401,9 @@ class MultiCoPG(TrainingWrapper):
 
         # TODO(jjma): Calculate indices of trajectory. This assumes that all agents
         # have trajectory with splits same to the player with the longest trajectory.
-        traj_indices = []
+        traj_indices = [0]
         traj_done = True
-        for i in range(0, mat_done[0].size(0)):
+        for i in range(1, mat_done[0].size(0)):
             # When we start another trajectory, we mark the starting index.
             if traj_done and mat_done[0][i] == 1.:
                 traj_indices.append(i)

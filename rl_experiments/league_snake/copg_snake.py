@@ -12,17 +12,18 @@ import gym, envs
 
 # Import policy and critic network.
 from network import policy, critic
+from network import policy2, critic2
 
 # Import log utilities.
 from torch.utils.tensorboard import SummaryWriter
 
 # Training settings (CHECK THESE BEFORE RUNNING).
-device = torch.device('cuda:1')
+device = torch.device('cuda:0')
 # device = torch.device('cpu') # Uncomment to use CPU.
-batch_size = 32
+batch_size = 64
 n_steps = 50000
 verbose = False
-run_id = "copg_try1_lr1e-3"
+run_id = "copg_try11"
 
 # Create log directories and specify Tensorboard writer.
 model_location = 'model'
@@ -35,8 +36,8 @@ env = gym.make('python_4p-v1')
 dtype = torch.float32
 
 # Specify episode number to use as last checkpoint (for loading model).
-last_teps = None # 2100
-last_run_id = None
+last_teps = 4250 # 2100
+last_run_id = "copg_try11"
 
 # Instantiate a policy and critic; we will use self play and a symmetric critic for this game.
 # p1 = policy().to(device).type(dtype)
@@ -48,7 +49,7 @@ last_run_id = None
 #     p1.load_state_dict(torch.load(actor_path))
 #     q.load_state_dict(torch.load(critic_path))
 
-num_overall = 8
+num_overall = 4
 policies = [policy().to(device).type(dtype) for _ in range(num_overall)]
 critics = [critic().to(device).type(dtype) for _ in range(num_overall)]
 
@@ -66,8 +67,9 @@ train_wrap = LeagueTrainingCoPG(
     4,
     batch_size=batch_size,
     policy_lr=1e-3,
-    critic_lr=1e-3,
-    device=device
+    critic_lr=1e-2,
+    device=device,
+    tol=1e-4,
 )
 
 print('device:', device)
@@ -79,35 +81,35 @@ if last_teps is None:
 
 for t_eps in range(last_teps, n_steps):
     # Sample and compute update.
-    train_wrap.step(verbose=verbose)
+    states, actions, action_mask, rewards, done = train_wrap.step(verbose=verbose)
 
-    # # Everything below is logging and model checkpoint, can ignore.
-    # if ((t_eps + 1) % 20) == 0:
-    #     print("logging progress:", t_eps + 1)
+    # Everything below is logging and model checkpoint, can ignore.
+    if ((t_eps + 1) % 20) == 0:
+        print("logging progress:", t_eps + 1)
 
-    #     # Calculating discounted average reward for current sample.
-    #     disc_avg_reward = []
-    #     for i in range(4):
-    #         total_sum = 0.
-    #         cumsum = 0.
-    #         for j in range(len(rewards[i])):
-    #             cumsum *= 0.99
-    #             cumsum += rewards[i][j].cpu().item()
-    #             if (done[i][j] == 0):
-    #                 total_sum += cumsum
-    #                 cumsum = 0
-    #         disc_avg_reward.append(total_sum/batch_size)
+        # Calculating discounted average reward for current sample.
+        disc_avg_reward = []
+        for i in range(4):
+            total_sum = 0.
+            cumsum = 0.
+            for j in range(len(rewards[i])):
+                cumsum *= 0.95
+                cumsum += rewards[i][j].cpu().item()
+                if (done[i][j] == 0):
+                    total_sum += cumsum
+                    cumsum = 0
+            disc_avg_reward.append(total_sum/batch_size)
 
-    #     # Log values to Tensorboard.
-    #     writer.add_scalar('agent1/disc_avg_reward', disc_avg_reward[0], t_eps)
-    #     writer.add_scalar('agent2/disc_avg_reward', disc_avg_reward[1], t_eps)
-    #     writer.add_scalar('agent3/disc_avg_reward', disc_avg_reward[2], t_eps)
-    #     writer.add_scalar('agent4/disc_avg_reward', disc_avg_reward[3], t_eps)
-    #     writer.add_scalar('game/avg_max_trajectory length', len(done[0]) / batch_size, t_eps)
+        # Log values to Tensorboard.
+        writer.add_scalar('agent1/disc_avg_reward', disc_avg_reward[0], t_eps)
+        writer.add_scalar('agent2/disc_avg_reward', disc_avg_reward[1], t_eps)
+        writer.add_scalar('agent3/disc_avg_reward', disc_avg_reward[2], t_eps)
+        writer.add_scalar('agent4/disc_avg_reward', disc_avg_reward[3], t_eps)
+        writer.add_scalar('game/avg_max_trajectory length', len(done[0]) / batch_size, t_eps)
 
     #     torch.cuda.empty_cache()
 
-    if ((t_eps + 1) % 100) == 0:
+    if ((t_eps + 1) % 250) == 0:
         print('saving checkpoint:', t_eps + 1)
 
         for i, (actor, critic) in enumerate(zip(policies, critics)):
