@@ -56,7 +56,7 @@ class TestCGDUtils(unittest.TestCase):
         for a, b in zip(soln, expected):
             self.assertTrue(torch.all(torch.isclose(a, b, atol=1e-03,)))
 
-    # TODO(jjma): add tests for 3 player case
+    # TODO(anonymous): add tests for 3 player case
     
 if __name__ == '__main__':
     unittest.main()

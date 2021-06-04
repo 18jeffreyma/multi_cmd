@@ -1,13 +1,14 @@
 # Import game utilities from marlenv package.
-import gym, envs, sys
+from multi_cmd.envs.markov_soccer import MarkovSoccer
+# Import game utilities from marlenv package.
+import gym
 from network import policy, critic
 
-import random
 import torch
 import numpy as np
 
 # Initialize game environment.
-env = gym.make('python_4p-v1')
+env = MarkovSoccer()
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -24,15 +25,15 @@ p_sgd2 = policy()
 p_sgd3 = policy()
 p_sgd4 = policy()
 
-p_cgd1.load_state_dict(torch.load("model/copg_batch64_lr1e3_try3/actor0_3000.pth", map_location=torch.device('cpu')))
-p_cgd2.load_state_dict(torch.load("model/copg_batch64_lr1e3_try3/actor1_3000.pth", map_location=torch.device('cpu')))
-p_cgd3.load_state_dict(torch.load("model/copg_batch64_lr1e3_try3/actor2_3000.pth", map_location=torch.device('cpu')))
-p_cgd4.load_state_dict(torch.load("model/copg_batch64_lr1e3_try3/actor3_3000.pth", map_location=torch.device('cpu')))
+p_cgd1.load_state_dict(torch.load("model/copg_batch16_lr1e3_try1/actor0_10000.pth", map_location=torch.device('cpu')))
+p_cgd2.load_state_dict(torch.load("model/copg_batch16_lr1e3_try1/actor1_10000.pth", map_location=torch.device('cpu')))
+p_cgd3.load_state_dict(torch.load("model/copg_batch16_lr1e3_try1/actor2_10000.pth", map_location=torch.device('cpu')))
+p_cgd4.load_state_dict(torch.load("model/copg_batch16_lr1e3_try1/actor3_10000.pth", map_location=torch.device('cpu')))
 
-p_sgd1.load_state_dict(torch.load("model/sgd_batch64_lr1e3_try3/actor0_3000.pth", map_location=torch.device('cpu')))
-p_sgd2.load_state_dict(torch.load("model/sgd_batch64_lr1e3_try3/actor1_3000.pth", map_location=torch.device('cpu')))
-p_sgd3.load_state_dict(torch.load("model/sgd_batch64_lr1e3_try3/actor2_3000.pth", map_location=torch.device('cpu')))
-p_sgd4.load_state_dict(torch.load("model/sgd_batch64_lr1e3_try3/actor3_3000.pth", map_location=torch.device('cpu')))
+p_sgd1.load_state_dict(torch.load("model/sgd_batch16_lr1e3_try1/actor0_10000.pth", map_location=torch.device('cpu')))
+p_sgd2.load_state_dict(torch.load("model/sgd_batch16_lr1e3_try1/actor1_10000.pth", map_location=torch.device('cpu')))
+p_sgd3.load_state_dict(torch.load("model/sgd_batch16_lr1e3_try1/actor2_10000.pth", map_location=torch.device('cpu')))
+p_sgd4.load_state_dict(torch.load("model/sgd_batch16_lr1e3_try1/actor3_10000.pth", map_location=torch.device('cpu')))
 
 # policies = [p2, p2, p2, p1]
 
@@ -48,16 +49,21 @@ combinations = [
     [p_cgd1, p_cgd2, p_cgd3, p_sgd4]
 ]
 
+combinations = [
+    [p_cgd1, p_sgd1, p_sgd1, p_sgd1],
+    [p_cgd1, p_cgd1, p_sgd1, p_sgd1],
+    [p_cgd1, p_cgd1, p_cgd1, p_sgd1]
+]
+
 winrate_list = []
-kill_winrate_list = []
-fruit_winrate_list = []
+steal_winrate_list = []
 
 for policies in combinations:
     # Run one trajectory of the game.
-    num_trajectories = 50
+    num_trajectories = 100
     win_count = np.array([0., 0., 0., 0.])
-    kill_win_count = np.array([0., 0., 0., 0.])
-    fruit_win_count = np.array([0., 0., 0., 0.])
+    steal_win_count = np.array([0., 0., 0., 0.])
+
     for i in range(num_trajectories):
         print(i)
         # Reset environment for each trajectory.
@@ -92,37 +98,26 @@ for policies in combinations:
         if 'winner' in debug:
             win_count[debug['winner']] += 1
         
-        kill_win_idxs = np.concatenate(
-            np.argwhere(debug['kills'] == np.amax(debug['kills'])))
-        for idx in kill_win_idxs:
-            kill_win_count[idx] += 1/len(kill_win_idxs)
+        steal_win_idxs = np.concatenate(
+            np.argwhere(debug['steals'] == np.amax(debug['steals'])))
+        for idx in steal_win_idxs:
+            steal_win_count[idx] += 1/len(steal_win_idxs)
 
-        fruit_win_idxs = np.concatenate(
-            np.argwhere(debug['fruits'] == np.amax(debug['fruits'])))
-        for idx in fruit_win_idxs:
-            fruit_win_count[idx] += 1/len(kill_win_idxs)
 
     win_percentage = win_count/num_trajectories
-    kill_win_percentage = kill_win_count/num_trajectories
-    fruit_win_percentage = fruit_win_count/num_trajectories
+    steal_win_percentage = steal_win_count/num_trajectories
 
     winrate_list.append(win_percentage)
-    kill_winrate_list.append(kill_win_percentage)
-    fruit_winrate_list.append(fruit_win_percentage)
+    steal_winrate_list.append(steal_win_percentage)
 
     print('win_percentage:', win_percentage)
-    print("kill_win_percentage:", kill_win_percentage)
-    print('fruit_win_percentage:', fruit_win_percentage)
+    print("steal_win_percentage:", steal_win_percentage)
 
 env.close()
 
-print(winrate_list)
-print(kill_winrate_list)
-print(fruit_winrate_list)
-
 winrate_list_np = np.transpose(np.array(winrate_list))
-kill_winrate_list_np = np.transpose(np.array(kill_winrate_list))
-fruit_winrate_list_np = np.transpose(np.array(fruit_winrate_list))
+steal_winrate_list_np = np.transpose(np.array(steal_winrate_list))
+
 
 data = winrate_list_np
 X = np.arange(3)
@@ -144,11 +139,12 @@ ax.bar(X + 0.61, data[3], color =[ORANGE, ORANGE, ORANGE], width = 0.18, edgecol
 
 custom_lines = [matplotlib.lines.Line2D([0], [0], color=LIGHT_BLUE, lw=8),
                 matplotlib.lines.Line2D([0], [0], color=ORANGE, lw=8)]
-ax.legend(custom_lines, ['PCGD', 'CGD'], fontsize=8)
+ax.legend(custom_lines, ['PCGD', 'SimGD'], fontsize=10)
 
-plt.savefig("snake_winrate.png", bbox_inches="tight")
+plt.savefig("soccer_winrate.png", bbox_inches="tight")
 
-data = kill_winrate_list_np
+data = steal_winrate_list_np
+data = np.transpose([[0.418, 0.201, 0.199, 0.278], [0.322, 0.337, 0.165, 0.145], [0.298, 0.285, 0.299, 0.118]])
 X = np.arange(3)
 fig = plt.figure(figsize=(6, 3))
 ax = fig.add_axes([0,0,1,1])
@@ -167,29 +163,6 @@ ax.bar(X + 0.61, data[3], color =[ORANGE, ORANGE, ORANGE], width = 0.18, edgecol
 
 custom_lines = [matplotlib.lines.Line2D([0], [0], color=LIGHT_BLUE, lw=8),
                 matplotlib.lines.Line2D([0], [0], color=ORANGE, lw=8)]
-ax.legend(custom_lines, ['PCGD', 'CGD'], fontsize=8)
+ax.legend(custom_lines, ['PCGD', 'SimGD'], fontsize=10)
 
-plt.savefig("snake_kill_winrate.png", bbox_inches="tight")
-
-data = fruit_winrate_list_np
-X = np.arange(3)
-fig = plt.figure(figsize=(6, 3))
-ax = fig.add_axes([0,0,1,1])
-ax.set_xlabel('Scenarios', fontsize=12)
-ax.set_ylabel('Winrate', fontsize=12)
-ax.set_xticks([0.30, 1.30, 2.30])
-ax.set_xticklabels(scenario_names)
-
-LIGHT_BLUE = (0.18, 0.42, 0.41)
-ORANGE = (0.85, 0.55, 0.13)
-
-ax.bar(X + 0.01, data[0], color =[LIGHT_BLUE, LIGHT_BLUE, LIGHT_BLUE], width = 0.18, edgecolor='none')
-ax.bar(X + 0.21, data[1], color =[ORANGE, LIGHT_BLUE, LIGHT_BLUE], width = 0.18, edgecolor='none')
-ax.bar(X + 0.41, data[2], color =[ORANGE, ORANGE, LIGHT_BLUE], width = 0.18, edgecolor='none')
-ax.bar(X + 0.61, data[3], color =[ORANGE, ORANGE, ORANGE], width = 0.18, edgecolor='none')
-
-custom_lines = [matplotlib.lines.Line2D([0], [0], color=LIGHT_BLUE, lw=8),
-                matplotlib.lines.Line2D([0], [0], color=ORANGE, lw=8)]
-ax.legend(custom_lines, ['PCGD', 'CGD'], fontsize=8)
-
-plt.savefig("snake_fruit_winrate.png", bbox_inches="tight")
+plt.savefig("soccer_steal_winrate.png", bbox_inches="tight")

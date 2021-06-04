@@ -1,29 +1,27 @@
 # Normal Python Imports:
 import os, sys
+from multi_cmd.envs.markov_soccer import MarkovSoccer
 
 # Import PyTorch and training wrapper for Multi CoPG.
 import torch
+from multi_cmd.envs.markov_soccer import MarkovSoccer
 from multi_cmd.optim import potentials
 from multi_cmd.rl_utils.league_copg import LeagueTrainingCoPG
 torch.backends.cudnn.benchmark = True
 
-# Import game environment (snake env is called "envs").
-import gym, envs
-
 # Import policy and critic network.
 from network import policy, critic
-from network import policy2, critic2
 
 # Import log utilities.
 from torch.utils.tensorboard import SummaryWriter
 
 # Training settings (CHECK THESE BEFORE RUNNING).
-device = torch.device('cuda:0')
+device = torch.device('cuda:2')
 # device = torch.device('cpu') # Uncomment to use CPU.
-batch_size = 32
+batch_size = 16
 n_steps = 50000
 verbose = False
-run_id = "copg_batch64_lr1e3_try3"
+run_id = "copg_batch16_lr1e3_try1"
 
 # Create log directories and specify Tensorboard writer.
 model_location = 'model'
@@ -32,7 +30,7 @@ if not os.path.exists(run_location):
     os.makedirs(run_location)
 
 # Initialize game environment.
-env = gym.make('python_4p-v1')
+env = MarkovSoccer()
 dtype = torch.float32
 
 # Specify episode number to use as last checkpoint (for loading model).
@@ -66,8 +64,8 @@ train_wrap = LeagueTrainingCoPG(
     critics,
     4,
     batch_size=batch_size,
-    policy_lr=1e-3,
-    critic_lr=2e-3,
+    policy_lr=1e-2,
+    critic_lr=1e-2,
     device=device,
     tol=1e-4,
     gamma=0.99
@@ -118,3 +116,5 @@ for t_eps in range(last_teps, n_steps):
             critic_path = os.path.join(run_location, 'critic' + str(i) + '_' + str(t_eps + 1) + '.pth')
             torch.save(actor.state_dict(), actor_path)
             torch.save(critic.state_dict(), critic_path)
+
+

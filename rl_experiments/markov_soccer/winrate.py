@@ -34,7 +34,7 @@ for i in range(num_trajectories):
             dist = policies[i](obs_gpu)
             # print(dist.probs)
             action = dist.sample().numpy()
-            # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
+            # TODO(anonymous): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
             if action.ndim == 1 and action.size == 1:
                 action = action[0]
             actions.append(action)

@@ -19,10 +19,10 @@ p4 = policy()
 # p2.load_state_dict(torch.load("model/sgd_try2_lr1e-3/actor1_2000.pth", map_location=torch.device('cpu')))
 # p3.load_state_dict(torch.load("model/sgd_try2_lr1e-3/actor2_2000.pth", map_location=torch.device('cpu')))
 # p4.load_state_dict(torch.load("model/sgd_try2_lr1e-3/actor3_2000.pth", map_location=torch.device('cpu')))
-p1.load_state_dict(torch.load("model/copg_try10/actor0_2000.pth", map_location=torch.device('cpu')))
-p2.load_state_dict(torch.load("model/copg_try10/actor1_2000.pth", map_location=torch.device('cpu')))
-p3.load_state_dict(torch.load("model/copg_try10/actor2_2000.pth", map_location=torch.device('cpu')))
-p4.load_state_dict(torch.load("model/copg_try10/actor3_2000.pth", map_location=torch.device('cpu')))
+p1.load_state_dict(torch.load("model/copg_batch64_lr1e3_try1/actor0_7500.pth", map_location=torch.device('cpu')))
+p2.load_state_dict(torch.load("model/copg_batch64_lr1e3_try1/actor1_7500.pth", map_location=torch.device('cpu')))
+p3.load_state_dict(torch.load("model/copg_batch64_lr1e3_try1/actor2_7500.pth", map_location=torch.device('cpu')))
+p4.load_state_dict(torch.load("model/copg_batch64_lr1e3_try1/actor3_7500.pth", map_location=torch.device('cpu')))
 policies = [p1, p2, p3, p4] 
 
 # Reset environment for visualization.
@@ -41,7 +41,7 @@ while (True):
         dist = policies[i](obs_gpu)
         print(dist.probs)
         action = dist.sample().numpy()
-        # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
+        # TODO(anonymous): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
         if action.ndim == 1 and action.size == 1:
             action = action[0]
         actions.append(action)

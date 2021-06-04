@@ -11,8 +11,8 @@ env = gym.make('python_4p-v1')
 # Load policy from saved checkpoints.
 p1 = policy()
 p2 = policy()
-p1.load_state_dict(torch.load("model/sgd_try1_lr2e-3/actor1_3000.pth", map_location=torch.device('cpu')))
-p2.load_state_dict(torch.load("model/copg_try1_lr2e-3/actor1_2900.pth", map_location=torch.device('cpu')))
+p1.load_state_dict(torch.load("model/sgd_try1_lr1e-3/actor1_15000.pth", map_location=torch.device('cpu')))
+p2.load_state_dict(torch.load("model/copg_try1_lr1e-3/actor1_15000.pth", map_location=torch.device('cpu')))
 # policies = [p2, p1, p1, p1]
 # policies = [p2, p2, p2, p1]
 policies = [p2, p2, p1, p1]
@@ -39,7 +39,7 @@ for i in range(num_trajectories):
             dist = policies[i](obs_gpu)
             # print(dist.probs)
             action = dist.sample().numpy()
-            # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
+            # TODO(anonymous): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
             if action.ndim == 1 and action.size == 1:
                 action = action[0]
             actions.append(action)

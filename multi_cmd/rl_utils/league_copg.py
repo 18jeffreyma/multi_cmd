@@ -8,7 +8,7 @@ import torch
 from multi_cmd.optim import cmd_utils, potentials
 from multi_cmd.optim import gda_utils
 
-# TODO(jjma): Casework for this?
+# TODO(anonymous): Casework for this?
 DEFAULT_DTYPE = torch.float32
 torch.set_default_dtype(DEFAULT_DTYPE)
 
@@ -24,7 +24,7 @@ def critic_update(state_mat, return_mat, q, optim_q):
     critic_loss = critic_loss.detach()
 
 
-# TODO(jjma): Revisit this?
+# TODO(anonymous): Revisit this?
 def get_advantage(
     next_value, reward_mat, value_mat, masks,
     gamma=0.95, tau=0.95, device=torch.device('cpu')
@@ -59,6 +59,7 @@ class LeagueTrainingSimGD:
         tol=1e-3,
         device=torch.device('cpu'),
         dtype=DEFAULT_DTYPE,
+        gamma=0.95
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -94,8 +95,10 @@ class LeagueTrainingSimGD:
             torch.optim.Adam(c.parameters(), lr=critic_lr) for c in self.critics
         ]
 
+        self.gamma = gamma
+
     def step(self, verbose=False):
-        # TODO(jjma):
+        # TODO(anonymous):
         # Randomly sample agents to play with each other into groups.
         # for each group game compute trajectories and advance policies
         # will need to do this without CMD optimizer
@@ -139,7 +142,7 @@ class LeagueTrainingSimGD:
                     policy = self.policies[policy_idx]
                     obs_gpu = torch.tensor([obs[i]], device=self.device, dtype=self.dtype)
                     action = policy(obs_gpu).sample().cpu().numpy()
-                    # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
+                    # TODO(anonymous): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
                     if action.ndim == 1 and action.size == 1:
                         action = action[0]
 
@@ -175,13 +178,13 @@ class LeagueTrainingSimGD:
         # Use critic function to get advantage.
         values, returns, advantages = [], [], []
 
-        # TODO(jjma): Fix this when making self-play more robust.
+        # TODO(anonymous): Fix this when making self-play more robust.
         critics = [self.critics[idx] for idx in chosen_policy_indices]
     
         # Compute generalized advantage estimation (GAE).
         for i, q in enumerate(critics):
             val = q(mat_states[i]).detach()
-            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device)
+            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device, gamma=self.gamma)
             advantage = ret - val
 
             values.append(val)
@@ -198,7 +201,7 @@ class LeagueTrainingSimGD:
             # Our training wrapper assumes that the policy returns a distribution.
             p = self.policies[policy_idx]
             lp_inid = p(mat_states[i]).log_prob(mat_actions[i])
-            # TODO(jjma): For games with single action per state, this works.
+            # TODO(anonymous): For games with single action per state, this works.
             lp = lp_inid
             if lp_inid.ndim > 1:
                 lp = lp_inid.sum(1)
@@ -243,6 +246,7 @@ class LeagueTrainingCoPG:
         tol=1e-3,
         device=torch.device('cpu'),
         dtype=DEFAULT_DTYPE,
+        gamma=0.95
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -279,9 +283,10 @@ class LeagueTrainingCoPG:
         ]
 
         self.tol = tol
+        self.gamma = gamma
 
     def step(self, verbose=False):
-        # TODO(jjma):
+        # TODO(anonymous):
         # Randomly sample agents to play with each other into groups.
         # for each group game compute trajectories and advance policies
         # will need to do this without CMD optimizer
@@ -325,7 +330,7 @@ class LeagueTrainingCoPG:
                     policy = self.policies[policy_idx]
                     obs_gpu = torch.tensor([obs[i]], device=self.device, dtype=self.dtype)
                     action = policy(obs_gpu).sample().cpu().numpy()
-                    # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
+                    # TODO(anonymous): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
                     if action.ndim == 1 and action.size == 1:
                         action = action[0]
 
@@ -363,13 +368,13 @@ class LeagueTrainingCoPG:
         # Use critic function to get advantage.
         values, returns, advantages = [], [], []
 
-        # TODO(jjma): Fix this when making self-play more robust.
+        # TODO(anonymous): Fix this when making self-play more robust.
         critics = [self.critics[idx] for idx in chosen_policy_indices]
     
         # Compute generalized advantage estimation (GAE).
         for i, q in enumerate(critics):
             val = q(mat_states[i]).detach()
-            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device)
+            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], device=self.device, gamma=self.gamma)
             advantage = ret - val
 
             values.append(val)
@@ -386,7 +391,7 @@ class LeagueTrainingCoPG:
             # Our training wrapper assumes that the policy returns a distribution.
             p = self.policies[policy_idx]
             lp_inid = p(mat_states[i]).log_prob(mat_actions[i])
-            # TODO(jjma): For games with single action per state, this works.
+            # TODO(anonymous): For games with single action per state, this works.
             lp = lp_inid
             if lp_inid.ndim > 1:
                 lp = lp_inid.sum(1)
@@ -400,13 +405,13 @@ class LeagueTrainingCoPG:
 
             gradient_losses.append(grad_loss)
 
-        # TODO(jjma): Calculate indices of trajectory. This assumes that all agents
+        # TODO(anonymous): Calculate indices of trajectory. This assumes that all agents
         # have trajectory with splits same to the player with the longest trajectory.
         traj_indices = [0]
         traj_done = True
         for i in range(1, mat_done[0].size(0)):
             # When we start another trajectory, we mark the starting index.
-            if traj_done and mat_done[0][i] == 1.:
+            if traj_done and mat_done[0][i] == 0.:
                 traj_indices.append(i)
                 traj_done = False
 
@@ -415,6 +420,15 @@ class LeagueTrainingCoPG:
                 traj_done = True
         # Include last index to compute pairs.
         traj_indices.append(mat_done[0].size(0))
+
+#         # Old slow implementation.
+#         s_log_probs = [torch.zeros_like(lp) for lp in log_probs]
+#         for lp, slp, mask in zip(log_probs, s_log_probs, mat_done):
+#             for i in range(slp.size(0)):
+#                 if i == 0:
+#                     slp[0] = 0.
+#                 else:
+#                     slp[i] = torch.add(slp[i-1], lp[i-1]) * mask[i-1]
 
         # Compute summed log probabilities for Hessian pseudoobjectives.
         s_log_probs = []
@@ -429,13 +443,19 @@ class LeagueTrainingCoPG:
                 # Compute normal cumsum, append 0 to front to align, and
                 # slice out trajectory length as givein in CoPG.
                 cumsum = torch.cumsum(lp[start:end], dim=0)
+                print('lp:', lp)
+                print('cumsum:', cumsum)
+                print('(start, end):', (start, end))
                 new_cumsum = torch.cat([
                     torch.tensor([0.], device=self.device, dtype=self.dtype),
                     cumsum
-                ])[:(end - start)]
+                ])[:cumsum.size(0)]
+
                 traj_cumsums.append(new_cumsum)
 
             s_log_probs.append(torch.cat(traj_cumsums) * action_mask)
+
+
 
         # Compute Hessian objectives.
         hessian_losses = [0. for _ in range(len(self.policies))]

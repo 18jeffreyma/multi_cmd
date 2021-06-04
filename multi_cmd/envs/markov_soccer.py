@@ -2,13 +2,11 @@
 # Representation
 import numpy as np
 import random
-import gym
-import pygame
 # from . import graphics
 
-# TODO(jjma): Look into turning this into OpenAI gym.
-# TODO(jjma): Make number of players/goal size tunable?
-# TODO(jjma): Implement cooperation (shared goals, etc) or enable this in reward.
+# TODO(anonymous): Look into turning this into OpenAI gym.
+# TODO(anonymous): Make number of players/goal size tunable?
+# TODO(anonymous): Implement cooperation (shared goals, etc) or enable this in reward.
 class MarkovSoccer(object):
     # Game constants. Do not change.
     BOARD_LENGTH = 8
@@ -26,7 +24,7 @@ class MarkovSoccer(object):
     OWN_GOAL_OTHER = 0.
     NORMAL_GOAL_WINNER = 1.
     NORMAL_GOAL_LOSER = -1.
-    NORMAL_GOAL_OTHER = -0.2
+    NORMAL_GOAL_OTHER = -0.25
 
     # Render colors.
     COLORS = ['red', 'green', 'blue', 'orange', 'black']
@@ -39,7 +37,7 @@ class MarkovSoccer(object):
         self.possible_coords = [
             np.array([x+1, y+1]) for x in range(length) for y in range(length)
         ]
-        # TODO(jjma): Currently, hard coded, need to generalize this.
+        # TODO(anonymous): Currently, hard coded, need to generalize this.
         half_idx = MarkovSoccer.BOARD_LENGTH // 2
         full_idx = MarkovSoccer.BOARD_LENGTH
         self.goal_positions = [
@@ -62,9 +60,14 @@ class MarkovSoccer(object):
         self.render_window = None
 
     def reset(self):
+        self.debug_info = {}
+        self.debug_info['steals'] = np.array([0, 0, 0, 0])
+
+
         self._board_reset()
         return self._compute_observations()
 
+        
     def step(self, actions):
         """
         Apply actions to game environment. In order, actions are integers
@@ -100,6 +103,8 @@ class MarkovSoccer(object):
                     # Only update state if other player has ball; steal it.
                     if self.has_ball[other_player_idx]:
                         # Ball changes hands.
+                        self.debug_info['steals'][i] += 1
+
                         self.has_ball[other_player_idx] = False
                         self.has_ball[i] = True
 
@@ -112,11 +117,13 @@ class MarkovSoccer(object):
                 # Case 4: Player has ball and moves into a goal.
                 elif self.has_ball[i] and self.board[tuple(new_pos)] > MarkovSoccer.GOAL_START_NUM:
                     # Check if own goal, reward differently.
-                    # TODO(jjma): Add cooperation ability here and tune reward.
+                    # TODO(anonymous): Add cooperation ability here and tune reward.
                     if self.board[tuple(new_pos)] % 10 == i + 1:
+                        self.debug_info['own_goal'] = i
                         rewards = np.array([MarkovSoccer.OWN_GOAL_OTHER for _ in range(MarkovSoccer.NUM_PLAYERS)])
                         rewards[i] = MarkovSoccer.OWN_GOAL_LOSER
                     else:
+                        self.debug_info['winner'] = i
                         rewards = np.array([MarkovSoccer.NORMAL_GOAL_OTHER for _ in range(MarkovSoccer.NUM_PLAYERS)])
                         rewards[i] = MarkovSoccer.NORMAL_GOAL_WINNER
                         loser_idx = self.board[tuple(new_pos)] % 10 - 1
@@ -145,7 +152,7 @@ class MarkovSoccer(object):
 
         # Computer observations for learning algorithms to use.
         obs = self._compute_observations()
-        return obs, rewards, dones, None
+        return obs, rewards, dones, self.debug_info
 
 
     def _board_reset(self):

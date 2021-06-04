@@ -11,57 +11,16 @@ from multi_cmd.optim import gda_utils
 DEFAULT_DTYPE = torch.float32
 torch.set_default_dtype(DEFAULT_DTYPE)
 
-def critic_update(state_mat, return_mat, q, optim_q):
-    val_loc = q(state_mat)
 
-    critic_loss = (return_mat - val_loc).pow(2).mean()
-
-    optim_q.zero_grad()
-    critic_loss.backward()
-    optim_q.step()
-
-    critic_loss = critic_loss.detach().cpu()
-
-    return critic_loss
-
-
-# TODO(anonymous): Revisit this?
-def get_advantage(
-    next_value, reward_mat, value_mat, masks,
-    gamma=0.99, tau=0.95, device=torch.device('cpu')
-):
-    insert_tensor = torch.tensor([[float(next_value)]], device=device)
-    value_mat = torch.cat([value_mat, insert_tensor])
-    gae = 0
-    returns = []
-
-    for i in reversed(range(len(reward_mat))):
-        delta = reward_mat[i] + gamma * value_mat[i+1] * masks[i] - value_mat[i]
-        gae = delta + gamma * tau * masks[i] * gae
-        returns.append(gae + value_mat[i])
-
-    # Reverse ordering.
-    returns.reverse()
-
-    vals = torch.cat(returns).reshape(-1, 1)
-    return vals
-
-
-class TrainingWrapper:
+class SingleStateTrainingWrapper:
     def __init__(
         self,
         env,
         policies,
-        critics,
         batch_size=32,
-        critic_lr=1e-3,
-        tol=1e-3,
+        tol=1e-6,
         device=torch.device('cpu'),
         dtype=DEFAULT_DTYPE,
-        self_play=False,
-        gamma=0.99,
-        tau=0.95,
-        critic_optim_kwargs = {},
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -77,7 +36,6 @@ class TrainingWrapper:
         self.env = env
         # Training parameters.
         self.policies = policies
-        self.critics = critics
 
         # Sampling parameters.
         self.batch_size = batch_size
@@ -85,22 +43,6 @@ class TrainingWrapper:
         # Device to be used.
         self.device = device
         self.dtype = dtype
-
-        # TODO(anonymous): Implement self play in a cleaner way.
-        self.self_play = self_play
-        if self.self_play:
-            assert(len(self.critics) == 1)
-            self.critic_optim = [
-                torch.optim.Adam(self.critics[0].parameters(), lr=critic_lr)
-            ]
-        else:
-            self.critic_optim = [
-                torch.optim.Adam(c.parameters(), lr=critic_lr, **critic_optim_kwargs) for c in self.critics
-            ]   
-
-        # GAE estimation work.
-        self.gamma = gamma
-        self.tau = tau
 
     def sample(self, verbose=False):
         """
@@ -140,14 +82,10 @@ class TrainingWrapper:
                     dist = policy(obs_gpu)
                     
                     action = dist.sample().cpu().numpy()
-
                     # TODO(anonymous): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
                     if action.ndim == 1 and action.size == 1:
                         action = action[0]
-                    else:
-                        # action = np.squeeze(dist.sample().cpu().numpy(), axis=1)
-                        action = np.squeeze(action, axis=1)
-                    
+
                     actions.append(action)
 
                 # Advance environment one step forwards.
@@ -177,23 +115,17 @@ class TrainingWrapper:
 
 
 # TODO(anonymous): Refine this class structure based on feedback.
-class MultiSimGD(TrainingWrapper):
+class SingleStateMultiSimGD(SingleStateTrainingWrapper):
     # TODO(anonymous): Horizon, gamma tuning?
     def __init__(
         self,
         env,
         policies,
-        critics,
         batch_size=32,
-        critic_lr=1e-3,
         tol=1e-3,
         device=torch.device('cpu'),
         dtype=DEFAULT_DTYPE,
-        self_play=False,
         policy_lr=0.002,
-        gamma=0.99,
-        tau=0.95,
-        critc_optim_kwargs = {}
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -204,19 +136,13 @@ class MultiSimGD(TrainingWrapper):
 
         Initialize training wrapper with any gym and policies.
         """
-        super(MultiSimGD, self).__init__(
+        super(SingleStateMultiSimGD, self).__init__(
             env,
             policies,
-            critics,
             batch_size=batch_size,
-            critic_lr=critic_lr,
             tol=tol,
             device=device,
             dtype=dtype,
-            self_play=self_play,
-            gamma=gamma,
-            tau=tau,
-            critic_optim_kwargs = critc_optim_kwargs
         )
 
         # Optimizers for policies and critics.
@@ -235,38 +161,6 @@ class MultiSimGD(TrainingWrapper):
             torch.cuda.synchronize()
             step_start_time = time.time()
 
-
-        # TODO(anonymous): Fix this when making self-play more robust.
-        critics = self.critics
-        if self.self_play:
-            critics = [self.critics[0] for _ in range(len(self.policies))]
-
-        # Use critic function to get advantage.
-        values, returns, advantages = [], [], []
-
-        # Compute generalized advantage estimation (GAE).
-        for i, q in enumerate(critics):
-            val = q(mat_states[i]).detach()
-            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], 
-                                tau=self.tau, gamma=self.gamma, device=self.device)
-
-            advantage = ret - val
-
-            values.append(val)
-            returns.append(ret)
-            advantages.append(torch.squeeze(advantage))
-
-        # Use sampled values to fit critic model.
-        if self.self_play:
-            # TODO(anonymous): Currently only supports all symmetric players.
-            cat_states = torch.cat([mat_states[i] for i in range(len(mat_states))])
-            cat_returns = torch.cat(returns)
-
-            critic_update(cat_states, cat_returns, self.critics[0], self.critic_optim[0])
-        else:
-            for i, q in enumerate(self.critics):
-                critic_update(mat_states[i], returns[i], q, self.critic_optim[i])
-
         log_probs = []
         gradient_losses = []
         for i, p in enumerate(self.policies):
@@ -282,7 +176,7 @@ class MultiSimGD(TrainingWrapper):
             log_probs.append(lp)
 
             # Get gradient objective per player, which is log probabilty times advantage.
-            prod = torch.squeeze(lp) * advantages[i]
+            prod = torch.squeeze(lp) * mat_rewards[i]
             gradient_losses.append(-prod.sum() / mat_action_mask[i].sum())
 
         # Update the policy parameters.
@@ -298,22 +192,17 @@ class MultiSimGD(TrainingWrapper):
 
 
 # TODO(anonymous): Refine this class structure based on feedback.
-class MultiCoPG(TrainingWrapper):
+class SingleStateMultiCoPG(SingleStateTrainingWrapper):
     # TODO(anonymous): Horizon, gamma tuning?
     def __init__(
         self,
         env,
         policies,
-        critics,
         batch_size=32,
-        critic_lr=1e-3,
         tol=1e-6,
         device=torch.device('cpu'),
         dtype=DEFAULT_DTYPE,
         potential=potentials.squared_distance(1),
-        self_play=False,
-        gamma=0.99,
-        tau=0.95,
     ):
         """
         :param env: OpenAI gym instance to train on
@@ -324,18 +213,13 @@ class MultiCoPG(TrainingWrapper):
 
         Initialize training wrapper with any gym and policies.
         """
-        super(MultiCoPG, self).__init__(
+        super(SingleStateMultiCoPG, self).__init__(
             env,
             policies,
-            critics,
             batch_size=batch_size,
-            critic_lr=critic_lr,
             tol=tol,
             device=device,
             dtype=dtype,
-            self_play=self_play,
-            gamma=gamma,
-            tau=tau,
         )
 
         # Optimizers for policies and critics.
@@ -355,36 +239,6 @@ class MultiCoPG(TrainingWrapper):
             torch.cuda.synchronize()
             step_start_time = time.time()
 
-        # Use critic function to get advantage.
-        values, returns, advantages = [], [], []
-
-        # TODO(anonymous): Fix this when making self-play more robust.
-        critics = self.critics
-        if self.self_play:
-            critics = [self.critics[0] for _ in range(len(self.policies))]
-
-        # Compute generalized advantage estimation (GAE).
-        for i, q in enumerate(critics):
-            val = q(mat_states[i]).detach()
-            ret = get_advantage(0, mat_rewards[i], val, mat_done[i], 
-                                tau=self.tau, gamma=self.gamma, device=self.device)
-            advantage = ret - val
-
-            values.append(val)
-            returns.append(ret)
-            advantages.append(torch.squeeze(advantage))
-
-        # Use sampled values to fit critic model.
-        if self.self_play:
-            # TODO(anonymous): Currently only supports all symmetric players.
-            cat_states = torch.cat([mat_states[i] for i in range(len(mat_states))])
-            cat_returns = torch.cat(returns)
-
-            critic_update(cat_states, cat_returns, self.critics[0], self.critic_optim[0])
-        else:
-            for i, q in enumerate(self.critics):
-                critic_update(mat_states[i], returns[i], q, self.critic_optim[i])
-
         log_probs = []
         gradient_losses = []
         for i, p in enumerate(self.policies):
@@ -400,61 +254,28 @@ class MultiCoPG(TrainingWrapper):
             log_probs.append(lp)
 
             # Get gradient objective per player, which is log probabilty times advantage.
-            prod = torch.squeeze(lp) * advantages[i]
+            prod = torch.squeeze(lp) * mat_rewards[i]
+            print(prod.shape)
             gradient_losses.append(-prod.sum() / mat_action_mask[i].sum())
-
-        print('log_probs:', log_probs)
-
-        # TODO(anonymous): Calculate indices of trajectory. This assumes that all agents
-        # have trajectory with splits same to the player with the longest trajectory.
-        traj_indices = [0]
-        traj_done = True
-        for i in range(1, mat_done[0].size(0)):
-            # When we start another trajectory, we mark the starting index.
-            if traj_done and mat_done[0][i] == 0.:
-                traj_indices.append(i)
-                traj_done = False
-
-            # Otherwise, when we encounter 0, we know trajectory is over.
-            elif mat_done[0][i] == 0.:
-                traj_done = True
-        # Include last index to compute pairs.
-        traj_indices.append(mat_done[0].size(0))
 
         # Compute summed log probabilities for Hessian pseudoobjectives.
         s_log_probs = []
-        for lp, action_mask in zip(log_probs, mat_action_mask):
-            # Compute cumsums over each trajectory.
-            traj_cumsums = []
-            for i in range(len(traj_indices)-1):
-                # Get consecutive trajectory boundary indices for slicing.
-                start = traj_indices[i]
-                end = traj_indices[i+1]
-
-                # Compute normal cumsum, append 0 to front to align, and
-                # slice out trajectory length as givein in CoPG.
-                cumsum = torch.cumsum(lp[start:end], dim=0)
-                new_cumsum = torch.cat([
-                    torch.tensor([0.], device=self.device, dtype=self.dtype),
-                    cumsum
-                ])[:cumsum.size(0)]
-
-                traj_cumsums.append(new_cumsum)
-
-            s_log_probs.append(torch.cat(traj_cumsums) * action_mask)
+        for lp in log_probs:
+            slp = torch.cumsum(lp.clone(), 0)
+            s_log_probs.append(slp)
 
         # Compute Hessian objectives.
         hessian_losses = [0. for _ in range(len(self.policies))]
         for i in range(len(log_probs)):
             for j in range(len(log_probs)):
                 if (i != j):
-                    hessian_losses[i] -= (log_probs[i] * log_probs[j] * advantages[i]).sum() / mat_action_mask[i].sum()
+                    hessian_losses[i] -= (torch.squeeze(log_probs[i] * log_probs[j]) * mat_rewards[i]).mean()
 
-                    term1 = s_log_probs[i][:-1] * log_probs[j][1:] * advantages[i][1:]
-                    hessian_losses[i] -= term1.sum() / (term1.size(0))
+                    # term1 = s_log_probs[i] * log_probs[j] * mat_rewards[i]
+                    # hessian_losses[i] -= term1.mean()
 
-                    term2 = log_probs[i][1:] * s_log_probs[j][:-1] * advantages[i][1:]
-                    hessian_losses[i] -= term2.sum() / (term2.size(0))
+                    # term2 = log_probs[i] * s_log_probs[j] * mat_rewards[i]
+                    # hessian_losses[i] -= term2.mean()
 
         # Update the policy parameters.
         self.policy_optim.zero_grad()
