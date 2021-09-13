@@ -10,8 +10,10 @@ env = gym.make('python_4p-v1')
 
 # Load policy from saved checkpoints.
 p1 = policy()
-p1.load_state_dict(torch.load("model/try3/actor1_5900.pth", map_location=torch.device('cpu')))
-policies = [p1 for _ in range(4)]
+p2 = policy()
+p1.load_state_dict(torch.load("model/sgd_try1_lr2e-3/actor1_3000.pth", map_location=torch.device('cpu')))
+p2.load_state_dict(torch.load("model/copg_try1_lr2e-3/actor1_2900.pth", map_location=torch.device('cpu')))
+policies = [p1 for _ in range(3)] + [p2]
 
 # Reset environment for visualization.
 obs = env.reset()
@@ -29,14 +31,15 @@ while (True):
         dist = policies[i](obs_gpu)
         print(dist.probs)
         action = dist.sample().numpy()
-        # TODO(jjma): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
+        # TODO(anonymous): Pytorch doesn't handle 0-dim tensors (a.k.a scalars well)
         if action.ndim == 1 and action.size == 1:
             action = action[0]
         actions.append(action)
 
     # Advance environment one step forwards.
     obs, rewards, dones, _ = env.step(actions)
-    print(rewards)
+    if 1. in rewards:
+        print('fruit_eaten')
 
     # Break once all players are done.
     if all(dones):

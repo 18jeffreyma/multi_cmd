@@ -55,7 +55,7 @@ def avp(
 
     Computes right product of metamatrix with a vector of player vectors.
     """
-    # TODO(jjma): add error handling and assertions
+    # TODO(anonymous): add error handling and assertions
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
     prod_list = [torch.zeros_like(v, device=device) for v in vector_list_flattened]
@@ -116,7 +116,7 @@ def antivp(
 
     Computes right product of antisymmetric metamatrix with a vector of player vectors.
     """
-    # TODO(jjma): add error handling and assertions
+    # TODO(anonymous): add error handling and assertions
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
     prod_list = [torch.zeros_like(v, device=device) for v in vector_list_flattened]
@@ -259,6 +259,7 @@ def metamatrix_conjugate_gradient(
 
     # Use conjugate gradient to find vector solution.
     for i in range(n_steps):
+        print(i)
         A_p = mvp(hessian_loss_list, player_list, player_list_flattened, p,
                   bregman=bregman, transpose=False, device=device)
         At_A_p = mvp(hessian_loss_list, player_list, player_list_flattened, A_p,
@@ -302,7 +303,7 @@ def metamatrix_conjugate_gradient(
 
             rdotr = new_rdotr
             rdotz = new_rdotz
-
+        
 
     return vector_list_flattened, i+1, rdotr
 
@@ -325,7 +326,7 @@ def exp_map(player_list_flattened, nash_list_flattened,
     return [elem.detach() for elem in mapped]
 
 
-# TODO(jjma): make this user interface cleaner.
+# TODO(anonymous): make this user interface cleaner.
 class CMD(object):
     """Optimizer class for the CMD algorithm with differentiable player objectives."""
     def __init__(self, player_list,
@@ -358,7 +359,7 @@ class CMD(object):
                       'last_dual_soln_n_iter': 0,
                       'last_dual_residual': 0.,
                       'antisymetric': antisymetric}
-        # TODO(jjma): set this device in CMD algorithm.
+        # TODO(anonymous): set this device in CMD algorithm.
         self.device = device
         self.mvp = avp if not antisymetric else antivp
 
@@ -413,7 +414,7 @@ class CMD(object):
                 p.data = mapped_flattened[idx: idx + p.numel()].reshape(p.shape)
                 idx += p.numel()
 
-# TODO(jjma): May need to fix this optimizer for self-play, specifically update
+# TODO(anonymous): May need to fix this optimizer for self-play, specifically update
 # method, since we need to update data and not just replace it. If this were
 # self play, only one of the updates calculated from nash would carry through.
 class CMD_RL(CMD):
@@ -421,7 +422,7 @@ class CMD_RL(CMD):
     def __init__(self, player_list,
                  bregman=potentials.squared_distance(1),
                  antisymetric=False,
-                 tol=1e-8, atol=1e-6,
+                 tol=1e-5, atol=1e-5,
                  n_steps=None,
                  device=torch.device('cpu')
                 ):

@@ -1,7 +1,7 @@
 """Provided Bregman potentials."""
 import torch
 
-# TODO(jjma): Check if all Bregman potentials can be evaluated
+# TODO(anonymous): Check if all Bregman potentials can be evaluated
 # element-wise; if so, we can evaluate this tensor by tensor as
 # below.
 

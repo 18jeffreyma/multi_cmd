@@ -21,7 +21,7 @@ def avp(
     
     Computes left product of metamatrix with a vector of player vectors.
     """
-    # TODO(jjma): add error handling and assertions
+    # TODO(anonymous): add error handling and assertions
     assert(len(loss_list) == len(param_list))
     assert(len(loss_list) == len(vector_list))
     assert((lr_list is not None) and (len(loss_list) == len(lr_list)))

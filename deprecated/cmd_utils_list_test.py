@@ -104,7 +104,7 @@ class TestCGDUtils(unittest.TestCase):
         """
         Perform an E2E test that CMD algorithm is generally implemented correctly.
         """
-        # TODO(jjma): Clean up this test case.
+        # TODO(anonymous): Clean up this test case.
         x_param = torch.tensor([0.3], requires_grad=True)
         y_param = torch.tensor([0.4], requires_grad=True)
         param_list = [[x_param], [y_param]]
@@ -146,7 +146,7 @@ class TestCGDUtils(unittest.TestCase):
         for actual, expected in zip(y_player, expected_y):
             self.assertTrue(round(actual, 4) == expected)
 
-    # TODO(jjma): add tests for 3 player case
+    # TODO(anonymous): add tests for 3 player case
 
 if __name__ == '__main__':
     unittest.main()

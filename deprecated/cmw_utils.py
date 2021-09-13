@@ -20,7 +20,7 @@ def avp(
     
     Computes left product of metamatrix with a vector of player vectors.
     """
-    # TODO(jjma): add error handling and assertions
+    # TODO(anonymous): add error handling and assertions
     assert(len(loss_list) == len(param_list))
     assert(len(loss_list) == len(vector_list))
     
@@ -30,7 +30,7 @@ def avp(
         for j, (col_param, vector_elem) in enumerate(zip(param_list, vector_list)):     
             # Diagonal case, where row and col params are the same.
             if i == j:               
-                # TODO(jjma): why is this converging with multiplication and not division
+                # TODO(anonymous): why is this converging with multiplication and not division
                 # can't initialize values at zero right
                 
                 # prod_list[i] += vector_elem * row_param

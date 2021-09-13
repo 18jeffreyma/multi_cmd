@@ -17,11 +17,11 @@ from network import policy, critic
 from torch.utils.tensorboard import SummaryWriter
 
 # Training settings (CHECK THESE BEFORE RUNNING).
-device = torch.device('cuda:1')
+device = torch.device('cuda:0')
 # device = torch.device('cpu') # Uncomment to use CPU.
-batch_size = 10
+batch_size = 16
 n_steps = 30000
-run_id = "try2"
+run_id = "copg_try1_lr2e-3"
 verbose = False
 
 # Create log directories and specify Tensorboard writer.
@@ -82,6 +82,7 @@ for t_eps in range(last_teps, n_steps):
     train_wrap.step(states, actions, action_mask, rewards, done, verbose=verbose)
     print("avg traj length", len(done[0])/batch_size)
 
+    # Everything below is logging and model checkpoint, can ignore.
     if ((t_eps + 1) % 20) == 0:
         print("logging progress:", t_eps + 1)
 

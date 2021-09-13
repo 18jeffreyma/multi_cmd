@@ -29,7 +29,7 @@ def avp(
 
     Computes right product of metamatrix with a vector of player vectors.
     """
-    # TODO(jjma): add error handling and assertions
+    # TODO(anonymous): add error handling and assertions
     # assert(len(hessian_loss_list) == len(player_list))
     # assert(len(hessian_loss_list) == len(vector_list))
 
@@ -40,7 +40,7 @@ def avp(
             if i == j:
                 # Diagonal element is the Bregman term.
 
-                # TODO(jjma): Check if all Bregman potentials can be evaluated
+                # TODO(anonymous): Check if all Bregman potentials can be evaluated
                 # element-wise; if so, we can evaluate this tensor by tensor as
                 # below.
                 bregman_tuple = tuple(bregman['Dxx_vp'](row_param, v_elem)
@@ -205,7 +205,7 @@ def exp_map(player_list, nash_list,
     return mapped
 
 
-# TODO(jjma): make this user interface cleaner.
+# TODO(anonymous): make this user interface cleaner.
 class CMD(object):
     """Optimizer class for the CMD algorithm with differentiable player objectives."""
     def __init__(self, player_list,
@@ -228,7 +228,7 @@ class CMD(object):
                       'tol': tol, 'atol': atol,
                       'last_dual_soln': None,
                       'last_dual_soln_n_iter': 0}
-        # TODO(jjma): set this device in CMD algorithm.
+        # TODO(anonymous): set this device in CMD algorithm.
         self.device = device
 
     def zero_grad(self):
@@ -289,7 +289,7 @@ class CMD_RL(CMD):
         """
         CMD algorithm using derivation for gradient and hessian term from CoPG.
         """
-        # TODO(jjma): Add documentation.
+        # TODO(anonymous): Add documentation.
 
         # Compute dual solution first, before mapping back to primal.
         nash_list, n_iter = metamatrix_conjugate_gradient(

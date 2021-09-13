@@ -63,7 +63,7 @@ for t_eps in range(1, num_episode+1):
         obs = env.reset()
         done = False
 
-        # TODO(jjma): Longer trajectory to use for game?
+        # TODO(anonymous): Longer trajectory to use for game?
         idx = 0
         while (not done):
             # Record state...
